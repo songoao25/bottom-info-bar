@@ -1,19 +1,21 @@
-// Codex 订阅桥接（v1.2.0）逻辑审计：
+// Codex 订阅桥接（v1.2.0 严格官方模式）逻辑审计：
 // ① decodeJwtExp（合法/非 JWT/损坏/缺 exp）② 过期判定边界（>45min 不续 / <45min 续 / 已过期续 / last_refresh 兜底）
-// ③ 写回安全（结构保留 / 缺令牌不写 / 原子写 rename 崩溃）④ 续期失败降级（401 重读→重试→保留旧凭据）
-// ⑤ 未登录态（auth.json 缺失/损坏 → 状态 error 不抛异常）⑥ ensureCodexRoute 幂等（已配置不重复写/不覆盖用户配置）
-// ⑦ 注入式集成（伪造 auth.json + 桩 fetch 全流程：续期写回/同值跳过/401 轮换）⑧ 静态安全断言（无 eyJ / console 不打 token / 无个人路径）
-// 隔离铁律：BOTTOM_INFO_BAR_CODEX_AUTH 指向临时目录（绝不读真实 ~/.codex/auth.json）；fetch 全量桩（绝不发网络请求）
+// ③ 写回安全（结构保留 / 缺令牌不写 / 原子写 rename 崩溃）④ 严格官方模式（无标记=未绑定不注入 /
+//    CLI 令牌无标记绝不被自动使用 / 标记在+令牌丢=绑定失效）⑤ ensureCodexRoute 幂等 ⑥⑦⑧⑨⑩⑪ 注入式集成
+//    （伪造 auth.json + 绑定标记 + 桩 fetch 全流程：注入/续期写回/同值跳过/401 轮换/退避）⑫ 静态安全断言
+// 隔离铁律：BOTTOM_INFO_BAR_CODEX_AUTH / BOTTOM_INFO_BAR_DATA_DIR / BOTTOM_INFO_BAR_BIND_FILE 全指向临时目录
+// （绝不读真实 ~/.codex/auth.json、绝不触碰真实 ~/.dsh/bottom-info-bar）；fetch 全量桩（绝不发网络请求）
 // 用法：node tests/test-codex-bridge.js（由 run-all.mjs 统一驱动，先 build 再测）
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { pathToFileURL } = require('url');
 
-// 测试隔离：auth 文件与数据目录全部指向临时目录（必须在 import lib 之前设置）
+// 测试隔离：auth 文件 / 数据目录 / 绑定标记文件全部指向临时目录（必须在 import lib 之前设置）
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bib-codex-bridge-'));
 process.env.BOTTOM_INFO_BAR_CODEX_AUTH = path.join(tmpRoot, 'auth.json');
 process.env.BOTTOM_INFO_BAR_DATA_DIR = path.join(tmpRoot, 'data');
+process.env.BOTTOM_INFO_BAR_BIND_FILE = path.join(tmpRoot, 'bind.json');
 
 const hostSrc = fs.readFileSync(__dirname + '/../plugin/src/host.js', 'utf8');
 
@@ -92,6 +94,12 @@ function makeAuth(opts) {
     last_refresh: o.lastRefresh || new Date(Date.now() - 3600 * 1000).toISOString(),
   };
 }
+// 绑定标记辅助（严格官方模式：标记在 → 才注入）
+const BIND_PATH = () => process.env.BOTTOM_INFO_BAR_BIND_FILE;
+function writeBind(data) {
+  fs.writeFileSync(BIND_PATH(), JSON.stringify(Object.assign({ bound: true, boundAt: new Date().toISOString() }, data || {}), null, 2), { mode: 0o600 });
+}
+function clearBind() { fs.rmSync(BIND_PATH(), { force: true }); }
 
 // ---------- 桩环境（apply 级集成；settings/credentials/fetch/interval 全桩，零网络） ----------
 function applyOps(store, ops) {
@@ -250,25 +258,48 @@ async function boot(opts) {
   const retried = writeAuthJson(wAuthPath, updated, 'retry-at', 'retry-rt', '2026-08-19T00:00:00.000Z');
   ok('原子写：恢复后可重试成功且无 tmp 残留', JSON.parse(readFileSync(wAuthPath, 'utf8')).tokens.access_token === 'retry-at' && !fs.existsSync(wAuthPath + '.tmp'), JSON.stringify(retried));
 
-  // ================= ④ 未登录态（缺失 / 损坏，不崩溃） =================
+  // ================= ④ 严格官方模式：未绑定 / 绑定失效（不崩溃、不注入） =================
   fs.rmSync(AUTH_PATH(), { force: true });
-  stubFetch(() => { throw new Error('未登录态不应发起网络请求'); });
+  clearBind();
+  stubFetch(() => { throw new Error('未绑定态不应发起网络请求'); });
   {
     const b = await boot({ settingsStore: { providers: {} } });
-    check('未登录态（缺失）：状态 ok=false', b.rpc.ok, false);
-    check('未登录态（缺失）：error.kind = no-login', b.rpc.error && b.rpc.error.kind, 'no-login');
-    check('未登录态（缺失）：无凭据写入', b.calls.credentialsSet.length, 0);
-    check('未登录态（缺失）：无网络请求', b.calls.fetch.length, 0);
+    check('未绑定（无标记 + 无 auth）：状态 ok=false', b.rpc.ok, false);
+    check('未绑定（无标记 + 无 auth）：error.kind = unbound', b.rpc.error && b.rpc.error.kind, 'unbound');
+    check('未绑定（无标记 + 无 auth）：bound=false', b.rpc.bound, false);
+    check('未绑定（无标记 + 无 auth）：无凭据写入', b.calls.credentialsSet.length, 0);
+    check('未绑定（无标记 + 无 auth）：无网络请求', b.calls.fetch.length, 0);
+    b.disposer();
+  }
+  // 核心回归（用户拍板：彻底废弃旧令牌来源）：codex CLI 已登录（auth.json 有令牌）但无插件绑定标记 → 绝不注入
+  writeAuth(makeAuth());
+  clearBind();
+  {
+    const b = await boot({ settingsStore: { providers: {} } });
+    check('未绑定（auth.json 有 CLI 令牌但无标记）：不注入', b.calls.credentialsSet.length, 0);
+    check('未绑定（auth.json 有 CLI 令牌但无标记）：状态 unbound', b.rpc.bound === false && b.rpc.ok === false && b.rpc.error && b.rpc.error.kind, 'unbound');
+    check('未绑定（auth.json 有 CLI 令牌但无标记）：无网络请求', b.calls.fetch.length, 0);
+    b.disposer();
+  }
+  // 绑定标记在但 auth.json 缺失 → 绑定已失效，引导重新授权（不崩溃）
+  writeBind();
+  fs.rmSync(AUTH_PATH(), { force: true });
+  {
+    const b = await boot({ settingsStore: { providers: {} } });
+    check('绑定失效（标记在 + auth 缺失）：error.kind = no-login', b.rpc.error && b.rpc.error.kind, 'no-login');
+    check('绑定失效（标记在 + auth 缺失）：无凭据写入', b.calls.credentialsSet.length, 0);
+    ok('绑定失效（标记在 + auth 缺失）：文案引导重新授权', b.rpc.error && b.rpc.error.message && b.rpc.error.message.indexOf('重新授权') >= 0, JSON.stringify(b.rpc.error));
     b.disposer();
   }
   fs.writeFileSync(AUTH_PATH(), '{corrupt json');
   {
     const b = await boot({ settingsStore: { providers: {} } });
-    check('未登录态（损坏）：状态 ok=false + no-login', b.rpc.ok === false && b.rpc.error && b.rpc.error.kind, 'no-login');
+    check('绑定失效（标记在 + auth 损坏）：状态 ok=false + no-login', b.rpc.ok === false && b.rpc.error && b.rpc.error.kind, 'no-login');
     b.disposer();
   }
 
   // ================= ⑤ 路由注册（ensureCodexRoute 幂等） =================
+  // 绑定标记在④末已写入（=已绑定态，与真实场景一致：绑定标记持久存在）；以下集成场景均基于已绑定
   fs.rmSync(AUTH_PATH(), { force: true });
   writeAuth(makeAuth());
   stubFetch(() => { throw new Error('无需续期不应发请求'); });
@@ -391,6 +422,7 @@ async function boot(opts) {
     ok('缺令牌：文件未被写回（内容不变）', JSON.stringify(readAuth()) === before, '文件被改写');
     check('缺令牌：无凭据注入', b.calls.credentialsSet.length, 0);
     check('缺令牌：状态 ok=false + auth 错误', b.rpc.ok === false && b.rpc.error && b.rpc.error.kind, 'auth');
+    ok('缺令牌：文案提示重新授权（有标记+令牌失效）', b.rpc.error && b.rpc.error.message && b.rpc.error.message.indexOf('重新授权') >= 0, JSON.stringify(b.rpc.error));
     b.disposer();
   }
 
@@ -474,6 +506,7 @@ async function boot(opts) {
   ok('安全：inject 含 settings（路由注册依赖）', hostSrc.includes("inject: ['credentials', 'shell', 'timer', 'settings']"), 'inject 缺 settings');
   ok('安全：RPC 含 getCodexBridgeStatus（只读）', hostSrc.includes('getCodexBridgeStatus: function') && hostSrc.includes('getCodexBridgeStatus: true') === false, 'RPC 缺失或误入 MUTATING');
   ok('隔离：auth 路径指向临时目录（绝不读真实 ~/.codex/auth.json）', AUTH_PATH() === path.join(tmpRoot, 'auth.json') && AUTH_PATH() !== path.join(os.homedir(), '.codex', 'auth.json'), AUTH_PATH());
+  ok('隔离：绑定标记路径指向临时目录（绝不触碰真实 ~/.dsh/bottom-info-bar）', BIND_PATH() === path.join(tmpRoot, 'bind.json') && BIND_PATH() !== path.join(os.homedir(), '.dsh', 'bottom-info-bar', 'codex-bind.json'), BIND_PATH());
 
   globalThis.fetch = origFetch;
   fs.rmSync(tmpRoot, { recursive: true, force: true });

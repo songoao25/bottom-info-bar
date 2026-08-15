@@ -4,9 +4,9 @@
 // 依赖：inject ['credentials', 'shell', 'timer', 'settings']；可选服务 webServer（ctx.inject 等待）
 // 记账持久化：usageRecords 落盘 ~/.dsh/bottom-info-bar/usage-records.json（可用环境变量
 // BOTTOM_INFO_BAR_DATA_DIR 覆盖目录），重启后真实累计花费不丢失。
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { createHash, randomBytes } from 'node:crypto'
 import { createServer } from 'node:http'
 
@@ -29,6 +29,9 @@ const SUBSCRIPTION_RETRY_BACKOFF_MS = 60000 // 订阅刷新失败后退避期：
 // 订阅源 auth 文件路径（可用环境变量覆盖——测试隔离用，避免测试误读真实登录态）
 const CODEX_AUTH_FILE = process.env.BOTTOM_INFO_BAR_CODEX_AUTH || join(homedir(), '.codex', 'auth.json')
 const OPENCODE_AUTH_FILE = process.env.BOTTOM_INFO_BAR_OPENCODE_AUTH || join(homedir(), '.local', 'share', 'opencode', 'auth.json')
+// 插件绑定标记文件（严格官方模式唯一事实）：默认 ~/.dsh/bottom-info-bar/codex-bind.json（0600）；
+// BOTTOM_INFO_BAR_BIND_FILE 可覆盖（测试隔离用，绝不触碰真实标记文件）
+const CODEX_BIND_FILE = process.env.BOTTOM_INFO_BAR_BIND_FILE || join(DATA_DIR, 'codex-bind.json')
 
 // ---------- ChatGPT 订阅官方 OAuth 绑定（v1.2.0）：PKCE S256 + state + 本地回调（仅 127.0.0.1） ----------
 // 回调端口：生产必须为 1455——redirect_uri 与 OpenAI 注册值固定一致；BOTTOM_INFO_BAR_OAUTH_PORT 仅测试隔离
@@ -261,6 +264,48 @@ function writeAuthJson(filePath, currentAuth, accessToken, refreshToken, lastRef
   return updated
 }
 
+// ---------- 插件绑定标记（严格官方模式唯一事实，用户 2026-08-17 拍板） ----------
+// 结构 { bound:true, boundAt, plan? }；0600；路径默认 ~/.dsh/bottom-info-bar/codex-bind.json
+// （BOTTOM_INFO_BAR_BIND_FILE 可覆盖）。语义：只有此标记存在且 bound=true 时，syncCodexToken
+// 才把 auth.json 令牌注入 DSH 凭据——codex CLI 自己登录的令牌（无插件标记）绝不被自动使用，
+// 彻底废弃旧桥接"读本机 codex 登录态"来源。
+
+// 读绑定标记：{ ok, bound }；文件缺失/损坏/非对象 → { ok:false, bound:false }（=未绑定，不注入）
+function readBindFlag(filePath) {
+  let raw = null
+  try {
+    raw = readFileSync(filePath, 'utf8')
+  } catch (err) {
+    return { ok: false, bound: false }
+  }
+  try {
+    const data = JSON.parse(raw)
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return { ok: false, bound: false }
+    return { ok: true, bound: data.bound === true }
+  } catch (err) {
+    return { ok: false, bound: false }
+  }
+}
+
+// 原子写绑定标记（tmp+rename 防写一半；0600；目录自动创建）；data 可带 plan 等扩展字段
+function writeBindFlag(filePath, data) {
+  const payload = Object.assign({ bound: true, boundAt: new Date().toISOString() }, data || {})
+  const tmp = filePath + '.tmp'
+  mkdirSync(dirname(filePath), { recursive: true })
+  writeFileSync(tmp, JSON.stringify(payload, null, 2) + '\n', { mode: 0o600 })
+  renameSync(tmp, filePath)
+  return payload
+}
+
+// 清绑定标记（删除文件）；文件已缺失视为已清，不抛错
+function clearBindFlag(filePath) {
+  try {
+    unlinkSync(filePath)
+  } catch (err) {
+    if (!err || err.code !== 'ENOENT') throw err
+  }
+}
+
 // 用 refresh_token 向官方 OAuth 端点换新令牌对；凭据仅经 HTTPS body 传递（不进子进程，无 shell 注入面）
 // 响应缺 access_token（空串/null）→ 返回 null（调用方不得写回）；refresh_token 未轮换 → 返回 null 字段表示沿用旧值
 async function refreshCodexTokenPair(refreshToken) {
@@ -383,21 +428,6 @@ function buildOAuthAuthObject(existing, exchange, nowIso) {
     tokens: tokens,
     last_refresh: nowIso,
   }
-}
-
-// 解绑：仅清令牌字段并原子写回（保留 auth_mode/OPENAI_API_KEY/account_id 等结构——auth.json 是 codex CLI
-// 等工具共用的标准位置，保留骨架更接近"已登出"语义，也便于重新绑定与 CLI 兼容）；tmp+rename 防写一半；0600
-function clearCodexAuthTokens(filePath, currentAuth) {
-  const base = currentAuth && typeof currentAuth === 'object' && !Array.isArray(currentAuth) ? currentAuth : {}
-  const tokens = Object.assign({}, base.tokens && typeof base.tokens === 'object' && !Array.isArray(base.tokens) ? base.tokens : {})
-  delete tokens.access_token
-  delete tokens.refresh_token
-  delete tokens.id_token
-  const updated = Object.assign({}, base, { tokens: tokens, last_refresh: null })
-  const tmp = filePath + '.tmp'
-  writeFileSync(tmp, JSON.stringify(updated, null, 2) + '\n', { mode: 0o600 })
-  renameSync(tmp, filePath)
-  return updated
 }
 
 // 用授权码向官方端点换令牌对（PKCE verifier 证明持码者身份）；凭据仅经 HTTPS body 传递（不进子进程）；
@@ -1391,8 +1421,9 @@ export default {
       return { days: d, points: points, byModel: byModelList, now: nowMs };
     }
 
-    // ---------- Codex 桥接（v1.2.0）：把 ~/.codex/auth.json 的订阅令牌自动喂给 DSH 的 openai-codex 路由 ----------
-    // 内存状态（RPC getCodexBridgeStatus 暴露，供调试/信息栏未来使用）；令牌值永不进状态/日志/仓库
+    // ---------- Codex 桥接（v1.2.0 严格官方模式）：绑定标记在 → 把 auth.json 的订阅令牌喂给 DSH openai-codex 路由 ----------
+    // 唯一事实：插件绑定标记（~/.dsh/bottom-info-bar/codex-bind.json）——标记缺失/非 bound → 未绑定，绝不读
+    // auth.json、绝不注入（codex CLI 自己登录的令牌绝不被自动使用）；令牌值永不进状态/日志/仓库
     let codexBridgeState = { ok: false, lastSyncAt: null, expiresAt: null, error: null, routeConfigured: false };
     let codexInjectedToken = null; // 上次注入的令牌（同值跳过：避免无谓写盘与 credentials/updated 广播）
 
@@ -1459,10 +1490,17 @@ export default {
       if (!codexBridgeState.routeConfigured) await ensureCodexRoute(); // settings 晚就绪/注册失败 → 顺延重试（幂等）
       const nowMs = Date.now();
       const nowSec = Math.floor(nowMs / 1000);
+      // 严格官方模式：绑定标记是唯一事实——标记不存在/非 bound → 未绑定（引导设置页授权），
+      // 不读 auth.json、不注入（codex CLI 自己的令牌，无插件标记，绝不被自动使用）
+      const flag = readBindFlag(CODEX_BIND_FILE);
+      if (!flag.bound) {
+        codexBridgeState = { ok: false, lastSyncAt: nowMs, expiresAt: null, error: { kind: 'unbound', message: '未绑定 ChatGPT 订阅，请在 DSH 设置「ChatGPT 订阅」页授权绑定' }, routeConfigured: codexBridgeState.routeConfigured };
+        return;
+      }
       const read = readCodexAuthFile(CODEX_AUTH_FILE);
       if (!read.ok) {
-        // 未登录态（auth.json 缺失/损坏）→ 状态标记 + 引导文案，不崩溃
-        codexBridgeState = { ok: false, lastSyncAt: nowMs, expiresAt: null, error: { kind: 'no-login', message: '未找到 ChatGPT 订阅登录凭证（~/.codex/auth.json），请在 DSH 设置「ChatGPT 订阅」页授权绑定' }, routeConfigured: codexBridgeState.routeConfigured };
+        // 绑定标记在但令牌丢（auth.json 缺失/损坏）→ 绑定已失效，引导重新授权，不崩溃
+        codexBridgeState = { ok: false, lastSyncAt: nowMs, expiresAt: null, error: { kind: 'no-login', message: '绑定已失效：未找到 ChatGPT 订阅登录凭证（~/.codex/auth.json），请在 DSH 设置「ChatGPT 订阅」页重新授权绑定' }, routeConfigured: codexBridgeState.routeConfigured };
         return;
       }
       const auth = read.auth;
@@ -1471,7 +1509,7 @@ export default {
       const refresh = typeof tokens.refresh_token === 'string' ? tokens.refresh_token : '';
       const lastRefreshMs = Date.parse(auth.last_refresh);
       if (!access) {
-        codexBridgeState = { ok: false, lastSyncAt: nowMs, expiresAt: null, error: { kind: 'no-key', message: 'ChatGPT 订阅登录凭证缺少 access_token' }, routeConfigured: codexBridgeState.routeConfigured };
+        codexBridgeState = { ok: false, lastSyncAt: nowMs, expiresAt: null, error: { kind: 'no-key', message: '绑定已失效：ChatGPT 订阅登录凭证缺少 access_token，请在 DSH 设置「ChatGPT 订阅」页重新授权绑定' }, routeConfigured: codexBridgeState.routeConfigured };
         return;
       }
       let expiresAtSec = codexExpiresAt(decodeJwtExp(access), lastRefreshMs);
@@ -1587,6 +1625,14 @@ export default {
           oauthLastError = { kind: 'write', message: 'OAuth 绑定成功但写入 auth.json 失败' };
           return;
         }
+        // 写插件绑定标记（严格官方模式唯一事实：标记在才注入；auth.json 只是令牌存放，不代表绑定）。
+        // 先写标记再注入凭据——标记写入失败则中止，绝不产生"无标记却已注入"的中间态
+        try {
+          writeBindFlag(CODEX_BIND_FILE, {});
+        } catch (err) {
+          oauthLastError = { kind: 'write', message: 'OAuth 绑定成功但写入绑定标记失败' };
+          return;
+        }
         // 注入 DSH 凭据（写入即下次生效，无需重启）
         try {
           await ctx.credentials.set('OPENAI_CODEX_API_KEY', exchanged.access_token);
@@ -1633,17 +1679,17 @@ export default {
       return { ok: true, authorizeUrl: authorizeUrl, oauthInFlight: true };
     }
 
-    // RPC：解绑（清 auth.json 令牌字段保留结构 + credentials.unset + 状态=未绑定）
+    // RPC：解绑（只清插件绑定标记 + credentials.unset；绝不动 ~/.codex/auth.json——那是 codex CLI 自己
+    // 的登录态，留给它自己用；OAuth 绑定写入的令牌在解绑后原样保留，不破坏其结构）
     async function unbindCodexRpc() {
       if (oauthInFlight) return { ok: false, error: { kind: 'in-flight', message: 'OAuth 授权进行中，请先完成或等待超时' } };
       try {
-        const read = readCodexAuthFile(CODEX_AUTH_FILE);
-        if (read.ok) clearCodexAuthTokens(CODEX_AUTH_FILE, read.auth);
+        clearBindFlag(CODEX_BIND_FILE);
         try {
           await ctx.credentials.unset('OPENAI_CODEX_API_KEY');
         } catch (err) { /* 凭据库未配置该键时 unset 无害 */ }
         codexInjectedToken = null;
-        codexBridgeState = { ok: false, lastSyncAt: Date.now(), expiresAt: null, error: { kind: 'unbound', message: '已解绑 ChatGPT 订阅' }, routeConfigured: codexBridgeState.routeConfigured };
+        codexBridgeState = { ok: false, lastSyncAt: Date.now(), expiresAt: null, error: { kind: 'unbound', message: '已解绑 ChatGPT 订阅，请在 DSH 设置「ChatGPT 订阅」页重新授权绑定' }, routeConfigured: codexBridgeState.routeConfigured };
         return { ok: true, bound: false };
       } catch (err) {
         return { ok: false, error: { kind: 'exception', message: '解绑失败：' + String((err && err.message) || err) } };
@@ -1700,10 +1746,10 @@ export default {
         return getSubscriptionSnapshotRpc();
       },
       getCodexBridgeStatus: function () {
-        // 只读状态：bound 以 auth.json 实际令牌为准（文件=唯一事实源）；令牌值绝不进状态/响应
-        const read = readCodexAuthFile(CODEX_AUTH_FILE);
-        const tokens = read.ok && read.auth.tokens && typeof read.auth.tokens === 'object' ? read.auth.tokens : {};
-        const bound = typeof tokens.access_token === 'string' && tokens.access_token.length > 0;
+        // 只读状态：bound 以插件绑定标记为准（严格官方模式——auth.json 有令牌但无绑定标记 ≠ 绑定）；
+        // 令牌值绝不进状态/响应
+        const flag = readBindFlag(CODEX_BIND_FILE);
+        const bound = flag.bound;
         const plan = subscriptions.codex && subscriptions.codex.data ? subscriptions.codex.data.plan : null;
         return {
           ok: codexBridgeState.ok,

@@ -1,12 +1,13 @@
-// ChatGPT 订阅官方 OAuth 绑定（v1.2.0 O1，host 流程）审计：
+// ChatGPT 订阅官方 OAuth 绑定（v1.2.0，host 流程）审计：
 // ① 纯函数：PKCE（verifier/challenge 格式与 sha256 推导）、buildAuthorizeUrl 参数完整、parseCallbackUrl
-//   （query/hash/缺参/裸 code/手贴 code#state）、account_id 提取、auth.json 构造、解绑清令牌、令牌交换请求体
-// ② 注入式集成（桩 fetch + 真实本地回调 server 于临时端口 + 临时 auth.json）：
-//   授权成功全链路 / state 不匹配拒绝 / 非回调路径 404 / 超时清理 / 端口占用返回错误 / 解绑 / 并发保护
-// ③ 静态安全断言：无 eyJ / console 不传 token / 状态 RPC 不含令牌值 / 回调仅 127.0.0.1
+//   （query/hash/缺参/裸 code/手贴 code#state）、account_id 提取、auth.json 构造、绑定标记读写/原子/0600、令牌交换请求体
+// ② 注入式集成（桩 fetch + 真实本地回调 server 于临时端口 + 临时 auth.json + 临时绑定标记）：
+//   授权成功全链路（含标记写入）/ state 不匹配拒绝 / 非回调路径 404 / 超时清理 / 端口占用返回错误 /
+//   解绑（只清标记+unset，auth.json 原样保留）/ 并发保护
+// ③ 静态安全断言：无 eyJ / console 不传 token / 状态 RPC 不含令牌值 / 回调仅 127.0.0.1 / 解绑绝不动 auth.json
 // 隔离铁律：BOTTOM_INFO_BAR_CODEX_AUTH + BOTTOM_INFO_BAR_DATA_DIR + BOTTOM_INFO_BAR_OAUTH_PORT +
-//   BOTTOM_INFO_BAR_OAUTH_TIMEOUT_MS 全指向临时（绝不读真实 ~/.codex/auth.json、绝不监听真实 1455）；
-//   fetch 全量桩（绝不发真实网络请求）
+//   BOTTOM_INFO_BAR_OAUTH_TIMEOUT_MS + BOTTOM_INFO_BAR_BIND_FILE 全指向临时（绝不读真实 ~/.codex/auth.json、
+//   绝不监听真实 1455、绝不触碰真实 ~/.dsh/bottom-info-bar）；fetch 全量桩（绝不发真实网络请求）
 // 用法：node tests/test-codex-oauth.js（由 run-all.mjs 统一驱动，先 build 再测）
 const fs = require('fs');
 const path = require('path');
@@ -76,6 +77,10 @@ function extractConst(name) {
 // 供提取出的函数解析的模块级绑定（eval 闭包指向本模块作用域）
 let writeFileSync = fs.writeFileSync;
 let renameSync = fs.renameSync;
+let readFileSync = fs.readFileSync;
+let mkdirSync = fs.mkdirSync;
+let unlinkSync = fs.unlinkSync;
+const { dirname } = path;
 const CODEX_OAUTH_CLIENT_ID = extractConst('CODEX_OAUTH_CLIENT_ID');
 const OAUTH_SCOPE = extractConst('OAUTH_SCOPE');
 const OAUTH_CALLBACK_PATH = extractConst('OAUTH_CALLBACK_PATH');
@@ -87,8 +92,10 @@ const buildAuthorizeUrl = extractFn('buildAuthorizeUrl');
 const parseCallbackUrl = extractFn('parseCallbackUrl');
 const codexAccountIdFromJwt = extractFn('codexAccountIdFromJwt');
 const buildOAuthAuthObject = extractFn('buildOAuthAuthObject');
-const clearCodexAuthTokens = extractFn('clearCodexAuthTokens');
 const exchangeAuthorizationCode = extractFn('exchangeAuthorizationCode');
+const readBindFlag = extractFn('readBindFlag');
+const writeBindFlag = extractFn('writeBindFlag');
+const clearBindFlag = extractFn('clearBindFlag');
 
 let pass = 0, fail = 0;
 function check(label, actual, expected) {
@@ -105,6 +112,12 @@ function ok(label, cond, detail) {
 function b64url(obj) { return Buffer.from(JSON.stringify(obj)).toString('base64url'); }
 function makeJwt(payload) { return 'aaa.' + b64url(payload) + '.bbb'; }
 const AUTH_PATH = () => process.env.BOTTOM_INFO_BAR_CODEX_AUTH;
+// 绑定标记辅助（严格官方模式唯一事实）
+const BIND_PATH = () => process.env.BOTTOM_INFO_BAR_BIND_FILE;
+function writeBind(data) {
+  fs.writeFileSync(BIND_PATH(), JSON.stringify(Object.assign({ bound: true, boundAt: new Date().toISOString() }, data || {}), null, 2), { mode: 0o600 });
+}
+function clearBind() { fs.rmSync(BIND_PATH(), { force: true }); }
 function writeAuth(authObj) { fs.writeFileSync(AUTH_PATH(), JSON.stringify(authObj, null, 2), { mode: 0o600 }); }
 function readAuth() { return JSON.parse(fs.readFileSync(AUTH_PATH(), 'utf8')); }
 function makeAuth(opts) {
@@ -222,6 +235,7 @@ async function waitBound(b, timeoutMs) {
   process.env.BOTTOM_INFO_BAR_OAUTH_TIMEOUT_MS = '2500';
   process.env.BOTTOM_INFO_BAR_CODEX_AUTH = path.join(tmpRoot, 'auth.json');
   process.env.BOTTOM_INFO_BAR_DATA_DIR = path.join(tmpRoot, 'data');
+  process.env.BOTTOM_INFO_BAR_BIND_FILE = path.join(tmpRoot, 'bind.json');
   ok('隔离：OAuth 端口为临时端口（非 1455）', port !== 1455, String(port));
   plugin = (await import(pathToFileURL(path.join(__dirname, '..', 'plugin', 'lib', 'index.js')).href)).default;
 
@@ -286,15 +300,41 @@ async function waitBound(b, timeoutMs) {
   ok('authObj：旧 id_token 保留 + 新令牌写入', merged.tokens.id_token === 'old-id' && merged.tokens.access_token === 'plain-at' && merged.tokens.refresh_token === 'rt-new', JSON.stringify(merged.tokens));
   check('authObj：last_refresh 更新', merged.last_refresh, iso);
 
-  // ================= ⑥ clearCodexAuthTokens（解绑清令牌保结构） =================
-  const unbindPath = path.join(tmpRoot, 'unbind.json');
-  writeFileSync(unbindPath, JSON.stringify(existing, null, 2), { mode: 0o600 });
-  clearCodexAuthTokens(unbindPath, existing);
-  const onDisk = JSON.parse(fs.readFileSync(unbindPath, 'utf8'));
-  ok('unbind：令牌字段已清', onDisk.tokens.access_token === undefined && onDisk.tokens.refresh_token === undefined && onDisk.tokens.id_token === undefined, JSON.stringify(onDisk.tokens));
-  ok('unbind：结构保留', onDisk.auth_mode === 'oauth' && onDisk.OPENAI_API_KEY === 'sk-user' && onDisk.tokens.account_id === 'old-acct', JSON.stringify(onDisk));
-  check('unbind：last_refresh 置空', onDisk.last_refresh, null);
-  ok('unbind：0600 且无 tmp 残留', (fs.statSync(unbindPath).mode & 0o777) === 0o600 && !fs.existsSync(unbindPath + '.tmp'), '权限/tmp 异常');
+  // ================= ⑥ 绑定标记纯函数（读写/原子/0600；严格官方模式唯一事实） =================
+  const bindPath = path.join(tmpRoot, 'flag', 'codex-bind.json');
+  // 缺失 → { ok:false, bound:false }
+  check('bindFlag：文件缺失 → {ok:false, bound:false}', JSON.stringify(readBindFlag(bindPath)), JSON.stringify({ ok: false, bound: false }));
+  // 写入（原子/0600/目录自动创建）
+  const written = writeBindFlag(bindPath, { plan: 'plus' });
+  ok('bindFlag：写入返回 { bound:true, boundAt(ISO), plan 合并 }', written.bound === true && typeof written.boundAt === 'string' && !isNaN(Date.parse(written.boundAt)) && written.plan === 'plus', JSON.stringify(written));
+  check('bindFlag：读回 { ok:true, bound:true }', JSON.stringify(readBindFlag(bindPath)), JSON.stringify({ ok: true, bound: true }));
+  ok('bindFlag：文件权限 0600', (fs.statSync(bindPath).mode & 0o777) === 0o600, (fs.statSync(bindPath).mode & 0o777).toString(8));
+  ok('bindFlag：无 tmp 残留', !fs.existsSync(bindPath + '.tmp'), 'tmp 残留');
+  // 原子写：rename 崩溃 → 目标文件仍是旧内容且始终合法 JSON
+  const origRenameFlag = renameSync;
+  renameSync = function () { throw new Error('simulated crash before rename'); };
+  let flagCrashed = false;
+  try { writeBindFlag(bindPath, { boundAt: 'x' }); } catch (e) { flagCrashed = true; }
+  renameSync = origRenameFlag;
+  check('bindFlag：rename 崩溃时抛异常', flagCrashed, true);
+  ok('bindFlag：目标文件未被破坏（仍 bound=true 合法 JSON）', readBindFlag(bindPath).bound === true, JSON.stringify(readBindFlag(bindPath)));
+  // 覆盖写与非法内容
+  writeBindFlag(bindPath, {});
+  const reRead = JSON.parse(readFileSync(bindPath, 'utf8'));
+  ok('bindFlag：覆盖写成功且无 tmp 残留', reRead.bound === true && !fs.existsSync(bindPath + '.tmp'), JSON.stringify(reRead));
+  fs.writeFileSync(bindPath, '{corrupt', { mode: 0o600 });
+  check('bindFlag：损坏 → {ok:false, bound:false}', JSON.stringify(readBindFlag(bindPath)), JSON.stringify({ ok: false, bound: false }));
+  fs.writeFileSync(bindPath, JSON.stringify({ bound: false }), { mode: 0o600 });
+  check('bindFlag：bound:false → {ok:true, bound:false}', JSON.stringify(readBindFlag(bindPath)), JSON.stringify({ ok: true, bound: false }));
+  fs.writeFileSync(bindPath, JSON.stringify({ bound: 'yes' }), { mode: 0o600 });
+  check('bindFlag：bound 非 true（字符串）→ bound:false', readBindFlag(bindPath).bound, false);
+  fs.writeFileSync(bindPath, JSON.stringify([1, 2]), { mode: 0o600 });
+  check('bindFlag：数组 → {ok:false, bound:false}', JSON.stringify(readBindFlag(bindPath)), JSON.stringify({ ok: false, bound: false }));
+  // 清理：删除文件；缺失再清不抛错
+  clearBindFlag(bindPath);
+  check('bindFlag：clear 后文件删除', fs.existsSync(bindPath), false);
+  clearBindFlag(bindPath); // 幂等：已缺失不抛错
+  check('bindFlag：clear 幂等（缺失不抛错）', true, true);
 
   // ================= ⑦ exchangeAuthorizationCode（桩 fetch：请求体/成功/失败） =================
   {
@@ -320,6 +360,7 @@ async function waitBound(b, timeoutMs) {
   // ================= ⑧ 集成：授权成功全链路 =================
   {
     fs.rmSync(AUTH_PATH(), { force: true });
+    clearBind(); // 全新未绑定态
     const atJwt = acctJwt('acct_oauth_1');
     const fetchCalls = [];
     stubFetch(async (url, opts) => {
@@ -365,6 +406,11 @@ async function waitBound(b, timeoutMs) {
     ok('绑定：last_refresh 为 ISO', typeof auth.last_refresh === 'string' && !isNaN(Date.parse(auth.last_refresh)), auth.last_refresh);
     ok('绑定：auth.json 0600 且无 tmp 残留', (fs.statSync(AUTH_PATH()).mode & 0o777) === 0o600 && !fs.existsSync(AUTH_PATH() + '.tmp'), '权限/tmp 异常');
     check('绑定：credentials.set 注入新令牌', b.calls.credentialsSet.length === 1 && b.calls.credentialsSet[0].name === 'OPENAI_CODEX_API_KEY' && b.calls.credentialsSet[0].value, atJwt);
+    // 绑定标记（严格官方模式唯一事实）：OAuth 成功后必须写入
+    const bindFlag = JSON.parse(readFileSync(BIND_PATH(), 'utf8'));
+    check('绑定：标记文件已写入 bound=true', bindFlag.bound, true);
+    ok('绑定：标记含 boundAt（ISO）', typeof bindFlag.boundAt === 'string' && !isNaN(Date.parse(bindFlag.boundAt)), bindFlag.boundAt);
+    ok('绑定：标记文件 0600 且无 tmp 残留', (fs.statSync(BIND_PATH()).mode & 0o777) === 0o600 && !fs.existsSync(BIND_PATH() + '.tmp'), '权限/tmp 异常');
     // 状态 RPC 绝不返回令牌值
     const st1 = await invoke(b.calls.route, '/_dsh/bottom-info-bar/getCodexBridgeStatus', 'GET', null, sameOrigin);
     ok('安全：状态 RPC 不含任何令牌值', JSON.stringify(st1.payload).indexOf(atJwt) < 0 && JSON.stringify(st1.payload).indexOf('rt-oauth-1') < 0 && JSON.stringify(st1.payload).indexOf('id-oauth-1') < 0, JSON.stringify(st1.payload));
@@ -443,9 +489,11 @@ async function waitBound(b, timeoutMs) {
     b.disposer();
   }
 
-  // ================= ⑬ 集成：解绑 =================
+  // ================= ⑬ 集成：解绑（只清绑定标记 + credentials.unset，绝不动 auth.json） =================
   {
     writeAuth(makeAuth());
+    writeBind(); // 已绑定态（标记在 + auth.json 有令牌）
+    const beforeUnbind = readAuth(); // 解绑前 auth.json 快照
     stubFetch(() => { throw new Error('解绑不应发起网络请求'); });
     const b = await boot();
     const sameOrigin = { 'sec-fetch-site': 'same-origin' };
@@ -454,14 +502,35 @@ async function waitBound(b, timeoutMs) {
     check('解绑：跨源请求被拒绝（403）', evil.status, 403);
     const r = await invoke(b.calls.route, '/_dsh/bottom-info-bar/unbindCodex', 'GET', null, sameOrigin);
     ok('解绑：ok=true + bound=false', r.payload && r.payload.ok === true && r.payload.bound === false, JSON.stringify(r.payload));
+    // 严格官方模式核心：解绑绝不动 ~/.codex/auth.json（codex CLI 自己的登录态原样保留）
     const after = readAuth();
-    ok('解绑：令牌字段已清（access/refresh/id 均无）', after.tokens.access_token === undefined && after.tokens.refresh_token === undefined && after.tokens.id_token === undefined, JSON.stringify(after.tokens));
+    ok('解绑：auth.json 完全未变（令牌原样保留）', JSON.stringify(after) === JSON.stringify(beforeUnbind), 'auth.json 被改写');
+    ok('解绑：access/refresh/id 令牌均在', typeof after.tokens.access_token === 'string' && typeof after.tokens.refresh_token === 'string' && typeof after.tokens.id_token === 'string', JSON.stringify(after.tokens));
     ok('解绑：结构保留（auth_mode/OPENAI_API_KEY/account_id）', after.auth_mode === 'oauth' && after.OPENAI_API_KEY === 'sk-user-demo' && after.tokens.account_id === 'acct_demo_001', JSON.stringify(after));
-    ok('解绑：0600 且无 tmp 残留', (fs.statSync(AUTH_PATH()).mode & 0o777) === 0o600 && !fs.existsSync(AUTH_PATH() + '.tmp'), '权限/tmp 异常');
+    // 绑定标记已清 + 凭据已解除
+    check('解绑：绑定标记已删除', fs.existsSync(BIND_PATH()), false);
     check('解绑：credentials.unset 已调用', b.calls.credentialsUnset.length === 1 && b.calls.credentialsUnset[0], 'OPENAI_CODEX_API_KEY');
     const st = await invoke(b.calls.route, '/_dsh/bottom-info-bar/getCodexBridgeStatus', 'GET', null, sameOrigin);
     check('解绑：状态 bound=false + ok=false', st.payload.bound === false && st.payload.ok === false, true);
     check('解绑：状态 error.kind=unbound', st.payload.error && st.payload.error.kind, 'unbound');
+    // 解绑后周期同步：无标记 → 不再注入（不会"解绑后复活"）
+    const setBefore = b.calls.credentialsSet.length;
+    const syncFn = b.calls.interval.find((f) => f.name === 'syncCodexToken');
+    if (syncFn) await syncFn();
+    check('解绑后：周期同步不再注入凭据', b.calls.credentialsSet.length, setBefore);
+    b.disposer();
+  }
+  // 幂等：无标记时解绑 → 不报错、auth.json 仍保留
+  {
+    clearBind();
+    writeAuth(makeAuth());
+    const beforeIdem = readAuth();
+    stubFetch(() => { throw new Error('不应发起网络请求'); });
+    const b = await boot();
+    const sameOrigin = { 'sec-fetch-site': 'same-origin' };
+    const r = await invoke(b.calls.route, '/_dsh/bottom-info-bar/unbindCodex', 'GET', null, sameOrigin);
+    ok('解绑幂等：无标记 → ok=true', r.payload && r.payload.ok === true, JSON.stringify(r.payload));
+    ok('解绑幂等：auth.json 令牌仍保留（完全未变）', JSON.stringify(readAuth()) === JSON.stringify(beforeIdem), 'auth.json 被改写');
     b.disposer();
   }
 
@@ -474,7 +543,11 @@ async function waitBound(b, timeoutMs) {
   ok('安全：startCodexOAuth/unbindCodex 在 MUTATING（跨源拒绝）', /MUTATING = \{[\s\S]*startCodexOAuth: true[\s\S]*unbindCodex: true/.test(hostSrc), 'MUTATING 缺失');
   ok('安全：getCodexBridgeStatus 不在 MUTATING（只读）', hostSrc.includes('getCodexBridgeStatus: true') === false, '误入 MUTATING');
   ok('安全：令牌交换走 HTTPS fetch；shell 仅用于开浏览器（命令不含令牌）', hostSrc.includes("fetch('https://auth.openai.com/oauth/token'") && !/\bshell\.run\([^)]*\btoken\b/.test(hostSrc), '令牌经 shell 传递');
+  ok('严格模式：源码不再含 clearCodexAuthTokens（解绑绝不动 auth.json）', !hostSrc.includes('clearCodexAuthTokens'), '仍存在');
+  ok('严格模式：含绑定标记纯函数（readBindFlag/writeBindFlag/clearBindFlag）', hostSrc.includes('function readBindFlag') && hostSrc.includes('function writeBindFlag') && hostSrc.includes('function clearBindFlag'), '缺失');
+  ok('严格模式：syncCodexTokenOnce 以绑定标记为唯一事实（先读标记再读 auth）', /const flag = readBindFlag\(CODEX_BIND_FILE\);[\s\S]*if \(!flag\.bound\)/.test(hostSrc), '标记门缺失');
   ok('隔离：auth 路径指向临时目录（绝不读真实 ~/.codex/auth.json）', AUTH_PATH() === path.join(tmpRoot, 'auth.json') && AUTH_PATH() !== path.join(os.homedir(), '.codex', 'auth.json'), AUTH_PATH());
+  ok('隔离：绑定标记路径指向临时目录（绝不触碰真实 ~/.dsh/bottom-info-bar）', BIND_PATH() === path.join(tmpRoot, 'bind.json') && BIND_PATH() !== path.join(os.homedir(), '.dsh', 'bottom-info-bar', 'codex-bind.json'), BIND_PATH());
 
   globalThis.fetch = origFetch;
   fs.rmSync(tmpRoot, { recursive: true, force: true });
