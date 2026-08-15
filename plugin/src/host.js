@@ -1097,7 +1097,7 @@ export default {
         return { infoDensity: config.infoDensity };
       },
     };
-    const MUTATING = { setActiveProvider: true, setDisplayMode: true, setInfoDensity: true };
+    const MUTATING = { setActiveProvider: true, setDisplayMode: true, setInfoDensity: true, getSubscriptionSnapshot: true };
 
     function sameOrigin(req) {
       const fetchSite = req.headers['sec-fetch-site'];

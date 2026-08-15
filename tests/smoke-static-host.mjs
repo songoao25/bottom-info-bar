@@ -128,7 +128,7 @@ check('webServer 路由已注册（prefix /_dsh/bottom-info-bar）',
   check('getBillingMode → 200 + balance（deepseek-official）', r.status === 200 && r.payload.mode === 'balance' && r.payload.provider === 'deepseek-official' && r.payload.reason === 'provider:deepseek-official')
 }
 {
-  const r = await invoke(first.captured.route, '/_dsh/bottom-info-bar/getSubscriptionSnapshot', 'GET')
+  const r = await invoke(first.captured.route, '/_dsh/bottom-info-bar/getSubscriptionSnapshot', 'GET', null, { 'sec-fetch-site': 'same-origin' })
   check('getSubscriptionSnapshot → 200 + balance 模式（不发订阅请求）', r.status === 200 && r.payload.mode === 'balance' && r.payload.source === null && r.payload.windows.length === 0)
 }
 {
@@ -158,7 +158,7 @@ check('webServer 路由已注册（prefix /_dsh/bottom-info-bar）',
     check('getBillingMode → subscription（provider=codex）', r.status === 200 && r.payload.mode === 'subscription' && r.payload.reason === 'provider:codex')
   }
   {
-    const r = await invoke(subCtx.captured.route, '/_dsh/bottom-info-bar/getSubscriptionSnapshot', 'GET')
+    const r = await invoke(subCtx.captured.route, '/_dsh/bottom-info-bar/getSubscriptionSnapshot', 'GET', null, { 'sec-fetch-site': 'same-origin' })
     check('getSubscriptionSnapshot（codex 无凭证）→ no-key 错误 + 空窗口', r.status === 200 && r.payload.mode === 'subscription' && r.payload.source === 'codex' && r.payload.error && r.payload.error.kind === 'no-key' && Array.isArray(r.payload.windows) && r.payload.windows.length === 0 && r.payload.plan === null)
   }
   subDisposer()
@@ -167,7 +167,7 @@ check('webServer 路由已注册（prefix /_dsh/bottom-info-bar）',
   const ogDisposer = plugin.apply(ogCtx.ctx)
   await new Promise((resolve) => setTimeout(resolve, 30))
   {
-    const r = await invoke(ogCtx.captured.route, '/_dsh/bottom-info-bar/getSubscriptionSnapshot', 'GET')
+    const r = await invoke(ogCtx.captured.route, '/_dsh/bottom-info-bar/getSubscriptionSnapshot', 'GET', null, { 'sec-fetch-site': 'same-origin' })
     check('getSubscriptionSnapshot（opencode-go 未配置）→ no-key 引导', r.status === 200 && r.payload.mode === 'subscription' && r.payload.source === 'opencode-go' && r.payload.error && r.payload.error.kind === 'no-key')
   }
   ogDisposer()
