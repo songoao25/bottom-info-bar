@@ -281,28 +281,42 @@ async function boot(opts) {
     b.disposer();
   }
   {
-    // 自我升级：桥接自有的旧默认配置（apiKeyEnv=OPENAI_CODEX_API_KEY + displayName=Codex，即 v1.2.0 试用期注册的旧路由）
-    // → 仅改显示名为 ChatGPT（Codex/ChatGPT 已合并），保留其余字段；只发生一次（升级后 guard 不再命中）
+    // 自我升级：桥接自有的旧默认配置（apiKeyEnv=OPENAI_CODEX_API_KEY + displayName=Codex + 无 transport，v1.2.0 试用期注册的旧路由）
+    // → 一次 mutate 补齐：显示名→ChatGPT + transport→'sse'（强制 HTTP SSE 绕开不稳定的 WebSocket），保留其余字段
     const b = await boot({ settingsStore: { providers: { 'openai-codex': { apiKeyEnv: 'OPENAI_CODEX_API_KEY', displayName: 'Codex', baseURL: 'keep-me' } } } });
     check('自我升级：旧桥接配置触发 mutate 恰好一次', b.calls.settingsMutate.length, 1);
-    ok('自我升级：显示名改为 ChatGPT 且保留其余字段', b.settingsStore.providers['openai-codex']
+    ok('自我升级：显示名→ChatGPT + transport→sse 且保留其余字段', b.settingsStore.providers['openai-codex']
       && b.settingsStore.providers['openai-codex'].displayName === 'ChatGPT'
+      && b.settingsStore.providers['openai-codex'].transport === 'sse'
       && b.settingsStore.providers['openai-codex'].apiKeyEnv === 'OPENAI_CODEX_API_KEY'
       && b.settingsStore.providers['openai-codex'].baseURL === 'keep-me',
       JSON.stringify(b.settingsStore.providers['openai-codex']));
     check('自我升级：routeConfigured=true + 令牌仍注入', b.rpc.routeConfigured === true && b.calls.credentialsSet.length, 1);
-    // 升级完成后再 boot（显示名已是 ChatGPT）→ guard 不再命中，零 mutate
-    const b2 = await boot({ settingsStore: { providers: { 'openai-codex': { apiKeyEnv: 'OPENAI_CODEX_API_KEY', displayName: 'ChatGPT' } } } });
-    check('自我升级：显示名已是 ChatGPT → 不再 mutate（幂等）', b2.calls.settingsMutate.length, 0);
     b.disposer();
+  }
+  {
+    // 已完全升级（displayName=ChatGPT + transport=sse）→ guard 不再命中，零 mutate（幂等）
+    const b2 = await boot({ settingsStore: { providers: { 'openai-codex': { apiKeyEnv: 'OPENAI_CODEX_API_KEY', displayName: 'ChatGPT', transport: 'sse' } } } });
+    check('升级完成 → 幂等：不再 mutate', b2.calls.settingsMutate.length, 0);
     b2.disposer();
   }
   {
-    // 缺失 → mutate 恰好一次，ops 形状正确
+    // 只缺 transport（displayName 已是 ChatGPT）→ 仅补 transport:'sse'，displayName/apiKeyEnv 保留
+    const b3 = await boot({ settingsStore: { providers: { 'openai-codex': { apiKeyEnv: 'OPENAI_CODEX_API_KEY', displayName: 'ChatGPT' } } } });
+    check('补 transport：mutate 恰好一次', b3.calls.settingsMutate.length, 1);
+    ok('补 transport：transport=sse 且 displayName/apiKeyEnv 保留', b3.settingsStore.providers['openai-codex']
+      && b3.settingsStore.providers['openai-codex'].transport === 'sse'
+      && b3.settingsStore.providers['openai-codex'].displayName === 'ChatGPT'
+      && b3.settingsStore.providers['openai-codex'].apiKeyEnv === 'OPENAI_CODEX_API_KEY',
+      JSON.stringify(b3.settingsStore.providers['openai-codex']));
+    b3.disposer();
+  }
+  {
+    // 缺失 → mutate 恰好一次，ops 形状正确（含 transport:'sse'）
     const b = await boot({ settingsStore: { providers: {} } });
     check('路由注册：缺失时 mutate 恰好一次', b.calls.settingsMutate.length, 1);
     ok('路由注册：ns=llm-pi-ai + ops 形状正确', b.calls.settingsMutate[0] && b.calls.settingsMutate[0].ns === 'llm-pi-ai'
-      && JSON.stringify(b.calls.settingsMutate[0].ops) === JSON.stringify([{ op: 'set', path: ['providers', 'openai-codex'], value: { apiKeyEnv: 'OPENAI_CODEX_API_KEY', displayName: 'ChatGPT' } }]),
+      && JSON.stringify(b.calls.settingsMutate[0].ops) === JSON.stringify([{ op: 'set', path: ['providers', 'openai-codex'], value: { apiKeyEnv: 'OPENAI_CODEX_API_KEY', displayName: 'ChatGPT', transport: 'sse' } }]),
       JSON.stringify(b.calls.settingsMutate[0]));
     check('路由注册：设置已生效（store 含配置）', b.settingsStore.providers['openai-codex'] && b.settingsStore.providers['openai-codex'].apiKeyEnv, 'OPENAI_CODEX_API_KEY');
     b.disposer();
@@ -408,6 +422,46 @@ async function boot(opts) {
     check('401无轮换：不注入（保留旧凭据）', b.calls.credentialsSet.length, 0);
     ok('401无轮换：文件不变', JSON.stringify(readAuth()) === before, '文件被改写');
     check('401无轮换：状态 ok=false + auth 错误', b.rpc.ok === false && b.rpc.error && b.rpc.error.kind, 'auth');
+    b.disposer();
+  }
+
+  // ================= ⑬ 订阅额度快照失败退避（wham 偶发失败 → 60s 退避期内不重试） =================
+  {
+    const realNow = Date.now();
+    writeAuth(makeAuth({ access: makeJwt({ exp: Math.floor(realNow / 1000) + 3 * 86400 }) }));
+    const whamCalls = [];
+    let whamOk = false;
+    stubFetch(async (url, opts) => {
+      const u = String(url);
+      if (u.includes('/wham/usage')) {
+        whamCalls.push({ at: Date.now() });
+        if (!whamOk) return { ok: false, status: 429, text: async () => 'rate limited' };
+        return { ok: true, status: 200, text: async () => JSON.stringify({ plan_type: 'plus', rate_limit: { primary_window: { used_percent: 43, limit_window_seconds: 604800, reset_at: 1787200342 } } }) };
+      }
+      throw new Error('退避测试出现非 wham 请求：' + u);
+    });
+    const b = await boot({ settingsStore: { providers: {} } });
+    // 首次：无快照 → 立即请求 → wham 失败 → 错误写入（保留无数据）
+    const sameOrigin = { 'sec-fetch-site': 'same-origin' };
+    const r1 = await invoke(b.calls.route, '/_dsh/bottom-info-bar/getSubscriptionSnapshot', 'GET', null, sameOrigin);
+    check('退避：首次失败 → error.kind=http + 无窗口数据', r1.payload && r1.payload.error && r1.payload.error.kind === 'http' && r1.payload.windows.length === 0, true);
+    check('退避：首次失败 → 恰好一次 wham 请求', whamCalls.length, 1);
+
+    // 退避期内（+10s）：stale 判定被退避挡住 → 不重试、直接返回缓存快照（error 仍在）
+    const origNow = Date.now;
+    Date.now = () => realNow + 10 * 1000;
+    const r2 = await invoke(b.calls.route, '/_dsh/bottom-info-bar/getSubscriptionSnapshot', 'GET', null, sameOrigin);
+    Date.now = origNow;
+    check('退避：失败后 10s 内不重试（无新请求、仍带 error）', whamCalls.length === 1 && r2.payload && r2.payload.error && r2.payload.error.kind === 'http', true);
+
+    // 退避期满（+61s）：重试 → 成功 → 窗口数据出现、error 清除
+    whamOk = true;
+    Date.now = () => realNow + 61 * 1000;
+    const r3 = await invoke(b.calls.route, '/_dsh/bottom-info-bar/getSubscriptionSnapshot', 'GET', null, sameOrigin);
+    Date.now = origNow;
+    ok('退避：期满重试成功 → 窗口数据出现（usedPercent=43）', r3.payload && Array.isArray(r3.payload.windows) && r3.payload.windows.length === 1 && r3.payload.windows[0].usedPercent === 43, JSON.stringify(r3.payload && r3.payload.windows));
+    check('退避：期满重试成功 → error 清除', r3.payload && r3.payload.error, null);
+    check('退避：期满后共 2 次 wham 请求', whamCalls.length, 2);
     b.disposer();
   }
 

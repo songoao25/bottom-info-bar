@@ -30,6 +30,8 @@
 - **额度显示改为剩余百分比**：订阅窗口显示 **剩余 = 100 − 已用**（如 `5h 91% · 周 56% · 月 60%`，紧凑标签 + 数值加粗）；hover 浮窗明确写「剩余 xx%（已用 xx%）· 重置 …· 距重置 …」；预警触发条件不变（已用 ≥90% = 剩余 ≤10%），告急文案同步改为「剩余 ≤10%」
 - **模型切换秒级同步**：客户端每 2 秒轮询 host 纯本地的 `getBillingMode`（零网络开销），检测到模型/服务商切换立即完整刷新信息栏，不再等最长 30 秒；订阅额度接口仍保持惰性门控 + 60s 周期，不被高频轮询触发
 - **模型名/服务商名与模型切换器完全一致（M5）**：注入 `llm` 服务读取 DSH LLM 目录（`llm.listModels` / `llm.listProviders`），信息栏模型名显示目录 `name`（如 `DeepSeek-V4-Flash`），替代自建美化格式；`llm/adapters-updated` 事件自动重建缓存，模型改名即时反映；llm 缺失/未知模型回退原始 model id、服务商回退静态映射，绝不崩溃；服务商名已是模型名前缀时只显示模型名（切换器样式，避免 `DeepSeek · DeepSeek-V4-Flash` 重复）
+- **对话稳定性：openai-codex 强制 `transport: 'sse'`**：pi-ai 默认 `transport=auto` 优先走 WebSocket 连 `chatgpt.com/backend-api`，实测不稳定（偶发整轮 "WebSocket error"）；桥接注册的路由强制 HTTP SSE 通道（与官方 codex 客户端同协议，更稳）；已注册的旧桥接路由启动时自动补 `transport: 'sse'`（保留其余字段、只发生一次，用户自定义配置不覆盖）
+- **订阅额度刷新失败退避**：wham/usage 偶发失败后记录失败时刻，60s 退避期内（RPC 与周期刷新均）不重试——减少对未公开接口的请求，「刷新失败，显示上次快照」提示不再随每次轮询反复闪烁
 - **模型可用性实测（2026-08-17，codex CLI 0.147.0 / ChatGPT Plus）**：`gpt-5.6-terra` / `gpt-5.6-luna` / `gpt-5.6-sol` / `gpt-5.5` / `gpt-5.4` / `gpt-5.4-mini` 对话实测可用（以订阅计划为准）；默认推荐 `gpt-5.6-terra`（与 codex CLI 默认一致）；`gpt-5.3-codex-spark` 需更高计划
 
 ### Security

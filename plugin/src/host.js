@@ -23,6 +23,7 @@ const CODEX_PLAN_NAMES = { plus: 'ChatGPT Plus', pro: 'ChatGPT Pro', team: 'Chat
 // 用于 Codex access_token 续期请求，任何人可见，不属机密；保留本注释防止未来安全审计误判为凭证泄漏。
 const CODEX_OAUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann' // OpenAI OAuth 公开 client_id（token 续期用，非密钥）
 const SUBSCRIPTION_REFRESH_MS = 60000 // 订阅额度快照刷新周期（与余额一致）
+const SUBSCRIPTION_RETRY_BACKOFF_MS = 60000 // 订阅刷新失败后退避期：期内不重试（减少对未公开 wham 接口的请求 + 避免"刷新失败"提示闪烁）
 // 订阅源 auth 文件路径（可用环境变量覆盖——测试隔离用，避免测试误读真实登录态）
 const CODEX_AUTH_FILE = process.env.BOTTOM_INFO_BAR_CODEX_AUTH || join(homedir(), '.codex', 'auth.json')
 const OPENCODE_AUTH_FILE = process.env.BOTTOM_INFO_BAR_OPENCODE_AUTH || join(homedir(), '.local', 'share', 'opencode', 'auth.json')
@@ -434,6 +435,7 @@ export default {
     const subscriptionSeq = {}; // 每 source 刷新序号：仅最新一次请求可写入快照
     const subscriptionInFlight = {}; // { [sourceKey]: Promise } 并发去重（同一时刻只发一个请求）
     const subscriptionRequested = {}; // 仅"客户端请求过"的源进入 60s 周期刷新（余额制下不打扰订阅接口）
+    const subscriptionLastFailAt = {}; // { [sourceKey]: ms } 上次订阅刷新失败时刻（失败退避：期内不重试）
 
     async function fetchWhamUsage(token, accountId) {
       const headers = { Authorization: 'Bearer ' + token, Accept: 'application/json' };
@@ -533,12 +535,16 @@ export default {
       subscriptionInFlight[sourceKey] = src.fetch().then(function (result) {
         if (subscriptionSeq[sourceKey] === seq) {
           subscriptions[sourceKey] = mergeSubscriptionResult(subscriptions[sourceKey], result);
+          // 失败退避记录：失败记时刻（期内不重试），成功清零
+          if (result && result.error) subscriptionLastFailAt[sourceKey] = Date.now();
+          else subscriptionLastFailAt[sourceKey] = 0;
         }
       }).catch(function (err) {
         if (subscriptionSeq[sourceKey] === seq) {
           subscriptions[sourceKey] = mergeSubscriptionResult(subscriptions[sourceKey], {
             error: { kind: 'exception', message: String((err && err.message) || err) },
           });
+          subscriptionLastFailAt[sourceKey] = Date.now();
         }
       }).finally(function () {
         subscriptionInFlight[sourceKey] = null;
@@ -546,10 +552,14 @@ export default {
       return subscriptionInFlight[sourceKey];
     }
 
-    // 60s 周期刷新：仅刷新客户端请求过的源（余额制模式下不打扰未公开的订阅接口）
+    // 60s 周期刷新：仅刷新客户端请求过的源（余额制模式下不打扰未公开的订阅接口）；失败退避期内跳过
     function refreshActiveSubscriptions() {
+      const nowMs = Date.now();
       for (const sourceKey in SUBSCRIPTION_SOURCES) {
-        if (subscriptionRequested[sourceKey]) kickSubscriptionRefresh(sourceKey);
+        if (!subscriptionRequested[sourceKey]) continue;
+        const lastFailAt = subscriptionLastFailAt[sourceKey] || 0;
+        if (nowMs - lastFailAt < SUBSCRIPTION_RETRY_BACKOFF_MS) continue;
+        kickSubscriptionRefresh(sourceKey);
       }
     }
 
@@ -564,10 +574,17 @@ export default {
       out.source = sourceKey;
       subscriptionRequested[sourceKey] = true; // 该源进入 60s 周期刷新
       const snap = subscriptions[sourceKey] || { data: null, fetchedAt: null, error: null };
-      const stale = !snap.fetchedAt || (Date.now() - snap.fetchedAt) > SUBSCRIPTION_REFRESH_MS;
+      const nowMs = Date.now();
+      const lastFailAt = subscriptionLastFailAt[sourceKey] || 0;
+      // 失败退避：快照过期（>60s 无成功）且距上次失败 ≥ 退避期（60s）才重试——
+      // 减少对未公开 wham 接口的请求，也避免"刷新失败"提示随每次轮询反复闪烁（失败期内直接读缓存快照）
+      const stale = (!snap.fetchedAt || (nowMs - snap.fetchedAt) > SUBSCRIPTION_REFRESH_MS)
+        && (nowMs - lastFailAt) >= SUBSCRIPTION_RETRY_BACKOFF_MS;
       if (stale) {
         const inflight = kickSubscriptionRefresh(sourceKey);
-        if (!snap.data && !snap.error) await inflight; // 从未有结果 → 等本次刷新（首屏即可见数据/错误）
+        // 从未成功过（无旧数据）→ 等本次刷新返回最新结果（含错误），避免退避重试后仍返回旧失败快照；
+        // 已有旧数据 → 后台刷新，本次直接返回快照（不阻塞轮询）
+        if (!snap.data) await inflight;
       }
       const cur = subscriptions[sourceKey] || { data: null, fetchedAt: null, error: null };
       if (cur.data) { out.plan = cur.data.plan; out.windows = cur.data.windows; }
@@ -1173,19 +1190,26 @@ export default {
         const providers = cur && typeof cur === 'object' && cur.providers && typeof cur.providers === 'object' ? cur.providers : {};
         const existing = providers['openai-codex'];
         if (existing && typeof existing.apiKeyEnv === 'string' && existing.apiKeyEnv.length > 0) {
-          // 自我升级：桥接自有的旧默认配置（apiKeyEnv=OPENAI_CODEX_API_KEY 且显示名仍为旧值 Codex）
-          // → 仅改显示名为 ChatGPT（Codex 与 ChatGPT 已合并，实际 provider 显示 ChatGPT），保留其余字段；
-          //   用户自定义配置（apiKeyEnv 非桥接注入值）绝不覆盖
-          if (existing.apiKeyEnv === 'OPENAI_CODEX_API_KEY' && existing.displayName === 'Codex') {
-            try {
-              await settings.mutate('llm-pi-ai', [{
-                op: 'set',
-                path: ['providers', 'openai-codex'],
-                value: Object.assign({}, existing, { displayName: 'ChatGPT' }),
-              }]);
-            } catch (upErr) {
-              codexBridgeState.error = { kind: 'settings', message: 'openai-codex 显示名更新失败，稍后重试' };
-              console.warn('[bottom-info-bar] Codex 路由显示名更新失败（稍后自动重试）', String((upErr && upErr.message) || upErr));
+          // 自我升级：桥接自有的旧默认配置（apiKeyEnv=OPENAI_CODEX_API_KEY）→ 补齐/修正桥接默认值，保留其余字段：
+          //   ①显示名 Codex → ChatGPT（Codex 与 ChatGPT 已合并，实际 provider 显示 ChatGPT）
+          //   ②transport 补 'sse'——pi-ai 默认 transport=auto 优先走 WebSocket 连 chatgpt.com/backend-api，
+          //     实测不稳定（偶发整轮 "WebSocket error" 失败）；sse=HTTP SSE 通道，与官方 codex 客户端同协议，更稳。
+          //   用户自定义配置（apiKeyEnv 非桥接注入值）绝不覆盖；升级只发生一次（补齐后 guard 不再命中）
+          if (existing.apiKeyEnv === 'OPENAI_CODEX_API_KEY') {
+            const patch = {};
+            if (existing.displayName === 'Codex') patch.displayName = 'ChatGPT';
+            if (existing.transport !== 'sse') patch.transport = 'sse';
+            if (Object.keys(patch).length > 0) {
+              try {
+                await settings.mutate('llm-pi-ai', [{
+                  op: 'set',
+                  path: ['providers', 'openai-codex'],
+                  value: Object.assign({}, existing, patch),
+                }]);
+              } catch (upErr) {
+                codexBridgeState.error = { kind: 'settings', message: 'openai-codex 路由升级失败，稍后重试' };
+                console.warn('[bottom-info-bar] Codex 路由升级失败（稍后自动重试）', String((upErr && upErr.message) || upErr));
+              }
             }
           }
           codexBridgeState.routeConfigured = true; // 已配置（含用户自定义）→ 幂等返回，不覆盖
@@ -1194,7 +1218,7 @@ export default {
         await settings.mutate('llm-pi-ai', [{
           op: 'set',
           path: ['providers', 'openai-codex'],
-          value: { apiKeyEnv: 'OPENAI_CODEX_API_KEY', displayName: 'ChatGPT' },
+          value: { apiKeyEnv: 'OPENAI_CODEX_API_KEY', displayName: 'ChatGPT', transport: 'sse' },
         }]);
         codexBridgeState.routeConfigured = true;
       } catch (err) {
