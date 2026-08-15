@@ -19,6 +19,7 @@
   "bugs": {
     "url": "https://github.com/songoao25/bottom-info-bar/issues"
   },
+  "author": "songoao25",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",

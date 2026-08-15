@@ -99,4 +99,4 @@ cd bottom-info-bar
 
 ## 许可证
 
-[MIT](LICENSE) © 2026 songsong
+[MIT](LICENSE) © 2026 songoao25

@@ -99,4 +99,4 @@ After restarting, the native stats row returns automatically with no residue (th
 
 ## License
 
-[MIT](LICENSE) © 2026 songsong
+[MIT](LICENSE) © 2026 songoao25
