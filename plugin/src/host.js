@@ -41,7 +41,7 @@ function codexWindowKey(limitWindowSeconds) {
 
 // 订阅 provider → 订阅源标识（codex / opencode-go）；非订阅 provider → null
 function subscriptionSourceFor(providerId) {
-  if (providerId === 'codex' || providerId === 'chatgpt') return 'codex'
+  if (providerId === 'codex' || providerId === 'chatgpt' || providerId === 'openai-codex') return 'codex'
   if (providerId === 'opencode-go' || providerId === 'opencode') return 'opencode-go'
   return null
 }

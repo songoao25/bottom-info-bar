@@ -46,6 +46,7 @@ const CODEX_PLAN_NAMES = extractConst('CODEX_PLAN_NAMES');
 
 // 提取纯函数（eval 出的函数闭包指向本模块作用域，能解析到上面的常量与函数）
 const detectBillingMode = extractFn('detectBillingMode');
+const subscriptionSourceFor = extractFn('subscriptionSourceFor');
 const codexWindowKey = extractFn('codexWindowKey');
 const planDisplayName = extractFn('planDisplayName'); // parseCodexUsage 的依赖
 const openCodeGoWindowKey = extractFn('openCodeGoWindowKey'); // parseOpenCodeGoUsage 的依赖
@@ -67,6 +68,9 @@ check('provider=chatgpt → subscription', detectBillingMode('chatgpt', 'auto').
 check('provider=opencode-go → subscription', detectBillingMode('opencode-go', 'auto').mode, 'subscription');
 check('provider=opencode → subscription', detectBillingMode('opencode', 'auto').mode, 'subscription');
 check('provider=openai-codex → subscription', detectBillingMode('openai-codex', 'auto').mode, 'subscription');
+check('订阅源映射：openai-codex → codex', subscriptionSourceFor('openai-codex'), 'codex');
+check('订阅源映射：chatgpt → codex', subscriptionSourceFor('chatgpt'), 'codex');
+check('订阅源映射：deepseek → null', subscriptionSourceFor('deepseek'), null);
 check('provider=deepseek → balance', detectBillingMode('deepseek', 'auto').mode, 'balance');
 check('provider=openai → balance', detectBillingMode('openai', 'auto').mode, 'balance');
 check('provider=openrouter → balance', detectBillingMode('openrouter', 'auto').mode, 'balance');
