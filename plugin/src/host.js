@@ -46,6 +46,25 @@ function subscriptionSourceFor(providerId) {
   return null
 }
 
+// ---------- M5：DSH 目录名 → 展示名（模型名/服务商名与模型切换器完全一致） ----------
+// 模型切换器显示 DSH LLM 目录的 model.name（如 id=deepseek-v4-flash 的 name="DeepSeek-V4-Flash"）。
+// 以下两个纯函数只做"缓存优先 → 回退"解析；缓存由 apply 内异步填充（llm.listModels / llm.listProviders）。
+// modelDisplay：优先缓存里的 DSH 目录 name；缓存缺失/未知模型回退原始 model id（不做自建美化）
+function modelDisplayFromCache(model, provider, cache) {
+  if (model && provider && cache) {
+    const provMap = cache[provider]
+    if (provMap && typeof provMap[model] === 'string' && provMap[model].length > 0) return provMap[model]
+  }
+  return model || '未知模型'
+}
+// providerDisplay：优先 DSH 目录 name（llm.listProviders()）；缺失回退静态映射；再回退大写首字母
+function providerDisplayFromCache(providerId, cache, staticMap) {
+  if (!providerId) return '未知服务商'
+  if (cache && typeof cache[providerId] === 'string' && cache[providerId].length > 0) return cache[providerId]
+  if (staticMap && staticMap[providerId]) return staticMap[providerId]
+  return providerId.charAt(0).toUpperCase() + providerId.slice(1)
+}
+
 // 余额制/订阅制判定：billingMode='auto' 按 provider 检测；'balance'/'subscription' 手动强制覆盖
 function detectBillingMode(providerId, billingMode) {
   if (billingMode === 'balance' || billingMode === 'subscription') {
@@ -614,7 +633,7 @@ export default {
       return { provider: provider, model: model, fallback: fallback };
     }
 
-    // ---------- 服务商/模型显示名自动识别 ----------
+    // ---------- 服务商显示名静态映射（M5 起为 providerDisplayFromCache 的回退层） ----------
     const PROVIDER_DISPLAY = {
       deepseek: 'DeepSeek',
       'deepseek-official': 'DeepSeek',
@@ -632,41 +651,45 @@ export default {
       xai: 'xAI',
       groq: 'Groq',
     };
-    function providerDisplayName(providerId) {
-      if (!providerId) return '未知服务商';
-      if (PROVIDER_DISPLAY[providerId]) return PROVIDER_DISPLAY[providerId];
-      return providerId.charAt(0).toUpperCase() + providerId.slice(1);
-    }
-    const MODEL_VENDOR_PREFIXES = [
-      { prefix: 'deepseek', label: 'DeepSeek' },
-      { prefix: 'gpt', label: 'GPT' },
-      { prefix: 'o1', label: 'o1' },
-      { prefix: 'glm', label: 'GLM' },
-      { prefix: 'kimi', label: 'Kimi' },
-      { prefix: 'moonshot', label: 'Moonshot' },
-      { prefix: 'qwen', label: 'Qwen' },
-      { prefix: 'claude', label: 'Claude' },
-      { prefix: 'gemini', label: 'Gemini' },
-      { prefix: 'mistral', label: 'Mistral' },
-      { prefix: 'llama', label: 'Llama' },
-      { prefix: 'grok', label: 'Grok' },
-    ];
-    function modelDisplayName(model) {
-      if (!model) return '未知模型';
-      for (let i = 0; i < MODEL_VENDOR_PREFIXES.length; i++) {
-        const vp = MODEL_VENDOR_PREFIXES[i];
-        if (model.indexOf(vp.prefix) === 0) {
-          const rest = model.slice(vp.prefix.length).replace(/^[-_:]+/, '');
-          const parts = rest.split(/[-_:]+/).filter(function (s) { return s.length > 0; });
-          if (parts.length === 0) return vp.label;
-          const pretty = parts.map(function (s) {
-            if (/^\d/.test(s)) return s.toUpperCase();
-            return s.charAt(0).toUpperCase() + s.slice(1);
-          }).join(' ');
-          return pretty;
+
+    // ---------- DSH 模型/服务商目录名缓存（M5：与模型切换器完全一致） ----------
+    // llm.listModels(provider) → DSH LLM 目录 { id, name }；llm.listProviders() → { id, name }。
+    // 缓存异步填充：启动即刷 + llm/adapters-updated 事件刷新 + getPricing 首次缺缓存时按需等待；
+    // llm 服务缺失/查询失败保留旧缓存（stale 可接受），展示层回退原始 id / 静态映射，绝不崩溃。
+    let modelNameCache = {};    // { provider: { modelId: name } }
+    let providerNameCache = {}; // { provider: name }
+    let modelCatalogRefreshed = {}; // { provider: true } 已尝试刷新（防 getPricing 反复打目录）
+
+    async function refreshModelCatalog(provider) {
+      const llm = ctx.get ? ctx.get('llm') : null;
+      if (!llm || typeof llm.listModels !== 'function' || !provider) return;
+      try {
+        const models = await llm.listModels(provider);
+        const map = {};
+        if (Array.isArray(models)) {
+          for (let i = 0; i < models.length; i++) {
+            const m = models[i];
+            if (m && typeof m.id === 'string' && m.id.length > 0 && typeof m.name === 'string' && m.name.length > 0) map[m.id] = m.name;
+          }
         }
-      }
-      return model;
+        modelNameCache[provider] = map;
+      } catch (err) { /* 目录查询失败保留旧缓存，绝不崩溃 */ }
+      try {
+        const provs = typeof llm.listProviders === 'function' ? await llm.listProviders() : null;
+        if (Array.isArray(provs)) {
+          for (let i = 0; i < provs.length; i++) {
+            const p = provs[i];
+            if (p && typeof p.id === 'string' && p.id.length > 0 && typeof p.name === 'string' && p.name.length > 0) providerNameCache[p.id] = p.name;
+          }
+        }
+      } catch (err) { /* 同上 */ }
+      modelCatalogRefreshed[provider] = true;
+    }
+
+    // 刷新当前激活 provider 的目录名缓存（启动 / llm/adapters-updated / 切模型后按需调用）
+    function refreshActiveModelCatalog() {
+      const sel = modelSelection();
+      return refreshModelCatalog(sel.provider);
     }
 
     // ---------- 定价计算 ----------
@@ -682,8 +705,8 @@ export default {
       return {
         model: sel.model,
         provider: sel.provider,
-        providerDisplay: providerDisplayName(sel.provider),
-        modelDisplay: modelDisplayName(sel.model),
+        providerDisplay: providerDisplayFromCache(sel.provider, providerNameCache, PROVIDER_DISPLAY),
+        modelDisplay: modelDisplayFromCache(sel.model, sel.provider, modelNameCache),
         fallback: sel.fallback || !entry,
         mode: entry ? entry.mode : 'unknown',
         period: period,
@@ -784,6 +807,12 @@ export default {
       } catch (err) {
         throw err;
       }
+    });
+
+    // M5：适配器/目录变更（模型增删、provider 改名）→ 重建目录名缓存，信息栏模型名与切换器保持一致
+    ctx.on('llm/adapters-updated', function () {
+      modelCatalogRefreshed = {};
+      refreshActiveModelCatalog();
     });
 
     // ---------- 花费计算 ----------
@@ -1269,7 +1298,12 @@ export default {
         const pid = args && typeof args === 'object' && args.provider ? String(args.provider) : '';
         return activeBalanceSummary(pid || undefined, Date.now());
       },
-      getPricing: function () {
+      getPricing: async function () {
+        // M5：首次遇到未刷新过的 provider → 等待一次目录名拉取（llm 缺失则直接回退），
+        // 保证模型名/服务商名与模型切换器一致；已刷新过则零等待直接读缓存
+        const sel = modelSelection();
+        const llm = ctx.get ? ctx.get('llm') : null;
+        if (llm && !modelCatalogRefreshed[sel.provider]) await refreshModelCatalog(sel.provider);
         return computePricing(Date.now());
       },
       getEstimate: function () {
@@ -1412,6 +1446,7 @@ export default {
     // ---------- 启动即刷 + 60s 定时刷新 ----------
     refreshAllBalances();
     refreshActiveSubscriptions(); // 惰性：无客户端请求过订阅源则不发起网络请求
+    refreshActiveModelCatalog(); // M5：启动即拉一次 DSH 目录名（llm 缺失时静默回退，绝不崩溃）
     ctx.interval(refreshAllBalances, 60000);
     ctx.interval(refreshActiveSubscriptions, 60000);
 

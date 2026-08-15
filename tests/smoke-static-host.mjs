@@ -112,7 +112,8 @@ check('webServer 路由已注册（prefix /_dsh/bottom-info-bar）',
 }
 {
   const r = await invoke(first.captured.route, '/_dsh/bottom-info-bar/getPricing', 'GET')
-  check('getPricing → 200 + DeepSeek V4 Flash + peak-valley', r.status === 200 && r.payload.providerDisplay === 'DeepSeek' && r.payload.modelDisplay === 'V4 Flash' && r.payload.mode === 'peak-valley')
+  check('getPricing → 200 + DeepSeek + 模型名回退原始 id（无 llm 桩）+ peak-valley',
+    r.status === 200 && r.payload.providerDisplay === 'DeepSeek' && r.payload.modelDisplay === 'deepseek-v4-flash' && r.payload.mode === 'peak-valley')
 }
 {
   const r = await invoke(first.captured.route, '/_dsh/bottom-info-bar/getUsageSummary', 'POST', JSON.stringify({ sessionId: 's-test' }))

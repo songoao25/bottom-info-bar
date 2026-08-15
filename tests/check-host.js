@@ -57,7 +57,7 @@ for (const [name] of calls) {
 const handlers = [];
 const routesMatch = src.match(/const ROUTES = \{([\s\S]*?)\n    \};/);
 if (routesMatch) {
-  const re = /\n\s{6}([A-Za-z_$][\w$]*): function/g;
+  const re = /\n\s{6}([A-Za-z_$][\w$]*): (?:async )?function/g;
   let m2;
   while ((m2 = re.exec(routesMatch[1]))) handlers.push(m2[1]);
 }
@@ -73,7 +73,7 @@ if (missingHandlers.length === 0) console.log('PASS  ' + handlers.length + ' 个
 else { ok = false; console.log('FAIL  缺失 handler：' + missingHandlers.join(', ')); }
 
 // 关键函数必须存在（防漏贴类缺陷）
-const critical = ['spendSummary', 'todaySpend', 'monthSpend', 'last30dSpend', 'costOf', 'sessionTotals', 'computePricing', 'computeEstimate', 'getUsageSummary', 'refreshAllBalances', 'providerDisplayName', 'modelDisplayName', 'detectBillingMode', 'codexWindowKey', 'parseCodexUsage', 'parseOpenCodeGoUsage', 'mergeSubscriptionResult', 'kickSubscriptionRefresh', 'getSubscriptionSnapshotRpc', 'decodeJwtExp', 'codexExpiresAt', 'codexNeedsRefresh', 'readCodexAuthFile', 'writeAuthJson', 'refreshCodexTokenPair', 'ensureCodexRoute', 'syncCodexToken'];
+const critical = ['spendSummary', 'todaySpend', 'monthSpend', 'last30dSpend', 'costOf', 'sessionTotals', 'computePricing', 'computeEstimate', 'getUsageSummary', 'refreshAllBalances', 'modelDisplayFromCache', 'providerDisplayFromCache', 'refreshModelCatalog', 'detectBillingMode', 'codexWindowKey', 'parseCodexUsage', 'parseOpenCodeGoUsage', 'mergeSubscriptionResult', 'kickSubscriptionRefresh', 'getSubscriptionSnapshotRpc', 'decodeJwtExp', 'codexExpiresAt', 'codexNeedsRefresh', 'readCodexAuthFile', 'writeAuthJson', 'refreshCodexTokenPair', 'ensureCodexRoute', 'syncCodexToken'];
 const missCritical = critical.filter((f) => !defined.has(f));
 if (missCritical.length === 0) console.log('PASS  关键函数齐备：' + critical.join(', '));
 else { ok = false; console.log('FAIL  关键函数缺失：' + missCritical.join(', ')); }

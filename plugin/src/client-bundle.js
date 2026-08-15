@@ -284,14 +284,21 @@ module.exports = {
       }
 
       // 服务商 + 具体模型（两种模式共用；纯显示，不拦截点击——点击冒泡到整条信息栏触发密度切换；hover 展示定价模式）
+      // M5：模型名/服务商名均取 DSH 目录名（与模型切换器完全一致）；当服务商名已是模型名前缀
+      // （如 "DeepSeek" + "DeepSeek-V4-Flash"）→ 只显示模型名（切换器样式，避免 "DeepSeek · DeepSeek-V4-Flash" 重复）
       function providerGroup() {
         const pr = state.pricing;
         const provLabel = (pr && pr.providerDisplay) ? pr.providerDisplay : '未知';
         const modelLabel = (pr && pr.modelDisplay) ? pr.modelDisplay
           : (pr && pr.model ? pr.model : '未知模型');
+        const redundant = provLabel.length > 1 && modelLabel.toLowerCase().indexOf(provLabel.toLowerCase()) === 0;
         const provTitle = '服务商：' + provLabel + ' ' + modelLabel + '\n'
           + (pr && pr.mode === 'peak-valley' ? '定价：峰谷价（高峰 9-12、14-18 点）'
             : (pr && pr.mode === 'flat' ? '定价：固定价' : '定价：未收录，按默认计'));
+        if (redundant) {
+          return React.createElement('span', { key: 'prov', title: provTitle },
+            React.createElement('b', null, modelLabel));
+        }
         return React.createElement('span', { key: 'prov', title: provTitle },
           React.createElement('b', null, provLabel),
           ' ',
