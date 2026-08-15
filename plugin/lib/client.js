@@ -15,6 +15,10 @@ const React = require('react');
 
 const RPC_BASE = '/_dsh/bottom-info-bar';
 
+// 排版优化（正式版）：完整模式下隐藏"首 token 平均 / tok/s"两个低优先级原生字段，
+// 让原生统计行在 748px 对话宽度下单行放得下；hover 信息浮窗（title）仍显示全部原生信息。
+const HIDE_SPEED_FIELDS = true;
+
 function rpc(method, args) {
   return fetch(RPC_BASE + '/' + method, {
     method: 'POST',
@@ -337,7 +341,7 @@ module.exports = {
       if (full && statsProj) {
         // 每组：{ nodes: React 节点数组（数字用 num 加粗）, text: 纯文本（title 用） }
         const ng = [];
-        function group(parts) {
+        function group(parts, hidden) {
           const nodesArr = [];
           const texts = [];
           for (let i = 0; i < parts.length; i++) {
@@ -345,7 +349,7 @@ module.exports = {
             if (typeof p === 'string') { nodesArr.push(p); texts.push(p); }
             else { nodesArr.push(p); texts.push(p.props.children); }
           }
-          ng.push({ nodes: nodesArr, text: texts.join('') });
+          ng.push({ nodes: nodesArr, text: texts.join(''), hidden: !!hidden });
         }
 
         group([num(statsProj.turns), ' 轮 · ', num(statsProj.steps), ' 步']);
@@ -358,7 +362,7 @@ module.exports = {
         const speeds = [];
         if (statsProj.ttftSteps > 0) speeds.push('首 token 平均 ', num(formatDuration(statsProj.ttftMs / statsProj.ttftSteps)));
         if (statsProj.decodeMs > 0) speeds.push(' · ', num(formatTps(statsProj.decodeTokens / (statsProj.decodeMs / 1e3))), ' tok/s');
-        if (speeds.length > 0) group(speeds);
+        if (speeds.length > 0) group(speeds, HIDE_SPEED_FIELDS); // 不占可见版式，title 浮窗保留
 
         if (usageProj && (billedInput(usageProj) > 0 || (usageProj.outputTokens || 0) > 0)) {
           const denom = billedInput(usageProj);
@@ -369,8 +373,11 @@ module.exports = {
 
         const nativeLine = ng.map(function (g) { return g.text; }).join(' | ');
         const ngNodes = [];
+        let visCount = 0;
         for (let i = 0; i < ng.length; i++) {
-          if (i > 0) ngNodes.push(React.createElement('span', { key: 'nsep' + i, className: 'bi-sep' }, '|'));
+          if (ng[i].hidden) continue; // 隐藏分组不占版式（title 仍含其文本）
+          if (visCount > 0) ngNodes.push(React.createElement('span', { key: 'nsep' + i, className: 'bi-sep' }, '|'));
+          visCount++;
           ngNodes.push(React.createElement('span', { key: 'ng' + i }, ng[i].nodes));
         }
         row1 = React.createElement('div', { className: 'bi-native-row', title: nativeLine }, ...ngNodes);

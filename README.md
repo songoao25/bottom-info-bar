@@ -11,7 +11,7 @@ A single-line information bar for [DeepSeek Harness](https://github.com/deepseek
 
 ## Features
 
-- **Drop-in replacement** — Replaces the native stats row while keeping its original information (turns/steps, LLM latency, tool calls, TTFT, tok/s, cache hit rate, in/out tokens) with a native-consistent layout.
+- **Drop-in replacement** — Replaces the native stats row while keeping its core original information (turns/steps, LLM latency, tool calls, cache hit rate, in/out tokens) with a native-consistent layout. Speed metrics (TTFT, tok/s) move to the hover tooltip so the row stays on a single line.
 - **Provider & model detection** — Auto-detects and pretty-prints the active provider and model (DeepSeek V4 Flash, Kimi K3, GLM 4.6, …) with a bold provider name.
 - **Live balance** — Fetches real balance from DeepSeek's `/user/balance` API, auto-refreshes every 60 s, and keeps the last known snapshot on failure so usage is never interrupted.
 - **Peak / off-peak pricing** — Shows peak (amber, bold) and off-peak (green, bold) prices with a countdown to the next switch; hidden automatically for providers without tiered pricing.
