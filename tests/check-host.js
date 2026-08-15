@@ -61,7 +61,7 @@ if (routesMatch) {
   let m2;
   while ((m2 = re.exec(routesMatch[1]))) handlers.push(m2[1]);
 }
-const expected = ['getBalanceSnapshot', 'getPricing', 'getEstimate', 'getUsageSummary', 'getProviders', 'setActiveProvider', 'getSpendTrend', 'getConfig', 'setDisplayMode', 'setInfoDensity', 'getBillingMode', 'getSubscriptionSnapshot'];
+const expected = ['getBalanceSnapshot', 'getPricing', 'getEstimate', 'getUsageSummary', 'getProviders', 'setActiveProvider', 'getSpendTrend', 'getConfig', 'setDisplayMode', 'setInfoDensity', 'getBillingMode', 'getSubscriptionSnapshot', 'getCodexBridgeStatus'];
 const missingHandlers = expected.filter((h) => !handlers.includes(h));
 
 let ok = true;
@@ -69,11 +69,11 @@ console.log('文件：' + file);
 console.log('定义函数数：' + [...defined].filter((n) => n !== 'ctx' && n !== 'apply' && !calls.has(n)).length + '（含内部辅助）');
 if (missing.length === 0) console.log('PASS  未发现未定义引用');
 else { ok = false; console.log('FAIL  未定义引用：' + missing.join(', ')); }
-if (missingHandlers.length === 0) console.log('PASS  12 个 RPC handler 完整：' + handlers.join(', '));
+if (missingHandlers.length === 0) console.log('PASS  ' + handlers.length + ' 个 RPC handler 完整：' + handlers.join(', '));
 else { ok = false; console.log('FAIL  缺失 handler：' + missingHandlers.join(', ')); }
 
 // 关键函数必须存在（防漏贴类缺陷）
-const critical = ['spendSummary', 'todaySpend', 'monthSpend', 'last30dSpend', 'costOf', 'sessionTotals', 'computePricing', 'computeEstimate', 'getUsageSummary', 'refreshAllBalances', 'providerDisplayName', 'modelDisplayName', 'detectBillingMode', 'codexWindowKey', 'parseCodexUsage', 'parseOpenCodeGoUsage', 'mergeSubscriptionResult', 'kickSubscriptionRefresh', 'getSubscriptionSnapshotRpc'];
+const critical = ['spendSummary', 'todaySpend', 'monthSpend', 'last30dSpend', 'costOf', 'sessionTotals', 'computePricing', 'computeEstimate', 'getUsageSummary', 'refreshAllBalances', 'providerDisplayName', 'modelDisplayName', 'detectBillingMode', 'codexWindowKey', 'parseCodexUsage', 'parseOpenCodeGoUsage', 'mergeSubscriptionResult', 'kickSubscriptionRefresh', 'getSubscriptionSnapshotRpc', 'decodeJwtExp', 'codexExpiresAt', 'codexNeedsRefresh', 'readCodexAuthFile', 'writeAuthJson', 'refreshCodexTokenPair', 'ensureCodexRoute', 'syncCodexToken'];
 const missCritical = critical.filter((f) => !defined.has(f));
 if (missCritical.length === 0) console.log('PASS  关键函数齐备：' + critical.join(', '));
 else { ok = false; console.log('FAIL  关键函数缺失：' + missCritical.join(', ')); }

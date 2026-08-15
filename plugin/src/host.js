@@ -1,7 +1,7 @@
 // Bottom Info Bar（底部信息栏插件）— host half（静态 bundle 形态）
 // 业务：余额真实 API / 峰谷定价 / llm/stream 记账 / 会话聚合 / 显示名识别
 // RPC：webServer HTTP 路由（GET/POST /_dsh/bottom-info-bar/<method>，JSON 进出，同源防护）
-// 依赖：inject ['credentials', 'shell', 'timer']；可选服务 webServer（ctx.inject 等待）
+// 依赖：inject ['credentials', 'shell', 'timer', 'settings']；可选服务 webServer（ctx.inject 等待）
 // 记账持久化：usageRecords 落盘 ~/.dsh/bottom-info-bar/usage-records.json（可用环境变量
 // BOTTOM_INFO_BAR_DATA_DIR 覆盖目录），重启后真实累计花费不丢失。
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
@@ -151,6 +151,110 @@ function mergeSubscriptionResult(prev, result) {
   return { data: result.data || null, fetchedAt: Date.now(), error: null }
 }
 
+// ---------- Codex 桥接（v1.2.0）纯逻辑：订阅令牌看护（读 auth.json → 判定过期 → 续期 → 原子写回 → 注入 DSH 凭据） ----------
+// 令牌寿命兜底（秒）：JWT exp 不可解析时按 last_refresh + 10 天估算（实测 Codex access_token iat/exp 差 = 864000s）
+const CODEX_TOKEN_FALLBACK_LIFETIME_SEC = 864000
+// 过期前提前量（秒）：JWT 剩余寿命 < 45 分钟才续期（10 天寿命下极少触发，避免窗口内过期）
+const CODEX_REFRESH_AHEAD_SEC = 45 * 60
+// 桥接同步周期（毫秒）：启动即跑一次 + 每 30 分钟维护（与订阅额度刷新相互独立）
+const CODEX_SYNC_INTERVAL_MS = 30 * 60 * 1000
+
+// base64url → UTF-8 字符串（JWT payload 段解码：-/_ 换回 +// 后按标准 base64 解，容忍缺 padding）
+function decodeBase64Url(input) {
+  if (typeof input !== 'string' || input.length === 0) return null
+  try {
+    return Buffer.from(input.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
+  } catch (err) {
+    return null
+  }
+}
+
+// JWT exp 解码（秒）：标准 JWT 取第 2 段 payload 的 exp；非 JWT/损坏/缺 exp → null（调用方走 last_refresh 兜底）
+function decodeJwtExp(token) {
+  if (typeof token !== 'string' || token.length === 0) return null
+  const parts = token.split('.')
+  if (parts.length !== 3) return null
+  const raw = decodeBase64Url(parts[1])
+  if (raw == null) return null
+  let payload = null
+  try { payload = JSON.parse(raw) } catch (err) { return null }
+  const exp = payload && payload.exp
+  return typeof exp === 'number' && isFinite(exp) && exp > 0 ? exp : null
+}
+
+// 归一化令牌过期时刻（秒）：JWT exp 优先；无效 → last_refresh（毫秒）+ 10 天兜底；两者皆无 → null
+function codexExpiresAt(expSeconds, lastRefreshMs) {
+  if (typeof expSeconds === 'number' && isFinite(expSeconds) && expSeconds > 0) return expSeconds
+  if (typeof lastRefreshMs === 'number' && isFinite(lastRefreshMs) && lastRefreshMs > 0) {
+    return Math.floor(lastRefreshMs / 1000) + CODEX_TOKEN_FALLBACK_LIFETIME_SEC
+  }
+  return null
+}
+
+// 续期决策（秒精度）：剩余 < 45 分钟或无法判定过期 → true（保守续期，宁多刷不放过期）
+function codexNeedsRefresh(expiresAtSeconds, nowSeconds) {
+  if (expiresAtSeconds == null) return true
+  return expiresAtSeconds - nowSeconds < CODEX_REFRESH_AHEAD_SEC
+}
+
+// 读 auth.json：{ ok:true, auth } 或 { ok:false, reason:'missing'|'corrupt' }（缺失/损坏一律不抛异常）
+function readCodexAuthFile(filePath) {
+  let raw = null
+  try {
+    raw = readFileSync(filePath, 'utf8')
+  } catch (err) {
+    return { ok: false, reason: err && err.code === 'ENOENT' ? 'missing' : 'corrupt' }
+  }
+  let auth = null
+  try {
+    auth = JSON.parse(raw)
+  } catch (err) {
+    return { ok: false, reason: 'corrupt' }
+  }
+  if (!auth || typeof auth !== 'object' || Array.isArray(auth)) return { ok: false, reason: 'corrupt' }
+  return { ok: true, auth: auth }
+}
+
+// 原子写回 auth.json：只更新 access_token/refresh_token/last_refresh，保留完整结构（auth_mode/OPENAI_API_KEY/
+// tokens 内 account_id、id_token 等一律不动——绝不弄坏 Codex CLI 登录态）；tmp+rename 防写一半；0600 权限
+function writeAuthJson(filePath, currentAuth, accessToken, refreshToken, lastRefreshIso) {
+  const updated = {
+    ...currentAuth,
+    tokens: { ...(currentAuth.tokens && typeof currentAuth.tokens === 'object' ? currentAuth.tokens : {}), access_token: accessToken, refresh_token: refreshToken },
+    last_refresh: lastRefreshIso,
+  }
+  const tmp = filePath + '.tmp'
+  writeFileSync(tmp, JSON.stringify(updated, null, 2) + '\n', { mode: 0o600 })
+  renameSync(tmp, filePath)
+  return updated
+}
+
+// 用 refresh_token 向官方 OAuth 端点换新令牌对；凭据仅经 HTTPS body 传递（不进子进程，无 shell 注入面）
+// 响应缺 access_token（空串/null）→ 返回 null（调用方不得写回）；refresh_token 未轮换 → 返回 null 字段表示沿用旧值
+async function refreshCodexTokenPair(refreshToken) {
+  try {
+    const res = await fetch('https://auth.openai.com/oauth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        client_id: CODEX_OAUTH_CLIENT_ID,
+        refresh_token: refreshToken,
+      }).toString(),
+      signal: AbortSignal.timeout(15000),
+    })
+    if (!res.ok) return null
+    const body = await res.json()
+    if (!body || typeof body.access_token !== 'string' || body.access_token.length === 0) return null
+    return {
+      access_token: body.access_token,
+      refresh_token: typeof body.refresh_token === 'string' && body.refresh_token.length > 0 ? body.refresh_token : null,
+    }
+  } catch (err) {
+    return null // 网络/超时等异常 → 调用方按"续期失败"降级（保留旧凭据）
+  }
+}
+
 function loadUsageRecords() {
   try {
     if (!existsSync(DATA_FILE)) return []
@@ -165,7 +269,7 @@ function loadUsageRecords() {
 }
 
 export default {
-  inject: ['credentials', 'shell', 'timer'],
+  inject: ['credentials', 'shell', 'timer', 'settings'],
   apply(ctx) {
     // ---------- 定价表（元/美元 · 百万 tokens；DeepSeek 官方 2026-08-17；OpenAI 为 2026 官方价示例） ----------
     const PRICING = {
@@ -325,27 +429,6 @@ export default {
       return { ok: res.ok, status: res.status, body: body };
     }
 
-    // access_token 过期时用 refresh_token 换新 token；新 token 仅内存使用，绝不落盘/打印
-    async function refreshCodexToken(refreshToken) {
-      try {
-        const res = await fetch('https://auth.openai.com/oauth/token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            grant_type: 'refresh_token',
-            client_id: CODEX_OAUTH_CLIENT_ID,
-            refresh_token: refreshToken,
-          }).toString(),
-          signal: AbortSignal.timeout(15000),
-        });
-        if (!res.ok) return null;
-        const body = await res.json();
-        return (body && typeof body.access_token === 'string' && body.access_token.length > 0) ? body.access_token : null;
-      } catch (err) {
-        return null; // 续期失败 → 调用方标记 auth 错误，保留旧快照
-      }
-    }
-
     async function fetchCodexUsage() {
       let auth = null;
       try {
@@ -364,9 +447,9 @@ export default {
       for (let attempt = 0; attempt < 2; attempt++) {
         const r = await fetchWhamUsage(token, accountId);
         if (r.status === 401 && attempt === 0 && typeof refresh === 'string' && refresh.length > 0) {
-          const fresh = await refreshCodexToken(refresh);
-          if (!fresh) return { error: { kind: 'auth', message: 'Codex access_token 过期且续期失败' } };
-          token = fresh;
+          const pair = await refreshCodexTokenPair(refresh);
+          if (!pair) return { error: { kind: 'auth', message: 'Codex access_token 过期且续期失败' } };
+          token = pair.access_token;
           continue;
         }
         if (!r.ok) return { error: { kind: 'http', message: '请求失败（HTTP ' + r.status + '）' } };
@@ -1044,6 +1127,126 @@ export default {
       return { days: d, points: points, byModel: byModelList, now: nowMs };
     }
 
+    // ---------- Codex 桥接（v1.2.0）：把 ~/.codex/auth.json 的订阅令牌自动喂给 DSH 的 openai-codex 路由 ----------
+    // 内存状态（RPC getCodexBridgeStatus 暴露，供调试/信息栏未来使用）；令牌值永不进状态/日志/仓库
+    let codexBridgeState = { ok: false, lastSyncAt: null, expiresAt: null, error: null, routeConfigured: false };
+    let codexInjectedToken = null; // 上次注入的令牌（同值跳过：避免无谓写盘与 credentials/updated 广播）
+
+    // 启动时一次：注册 openai-codex 模型路由（先读后写幂等——用户已有配置绝不被覆盖）
+    async function ensureCodexRoute() {
+      const settings = ctx.settings || ctx.get('settings');
+      if (!settings || typeof settings.get !== 'function' || typeof settings.mutate !== 'function') {
+        codexBridgeState.error = { kind: 'settings', message: 'settings 服务未就绪，下个周期重试' };
+        return; // 服务晚就绪 → 下个 interval tick 由 syncCodexToken 顺延重试
+      }
+      try {
+        const cur = settings.get('llm-pi-ai');
+        const providers = cur && typeof cur === 'object' && cur.providers && typeof cur.providers === 'object' ? cur.providers : {};
+        const existing = providers['openai-codex'];
+        if (existing && typeof existing.apiKeyEnv === 'string' && existing.apiKeyEnv.length > 0) {
+          codexBridgeState.routeConfigured = true; // 已配置（含用户自定义）→ 幂等返回，不覆盖
+          return;
+        }
+        await settings.mutate('llm-pi-ai', [{
+          op: 'set',
+          path: ['providers', 'openai-codex'],
+          value: { apiKeyEnv: 'OPENAI_CODEX_API_KEY', displayName: 'Codex' },
+        }]);
+        codexBridgeState.routeConfigured = true;
+      } catch (err) {
+        // mutate 失败（settings-rejected / 持久层异常）→ 记录并下个 tick 重试，不崩溃
+        codexBridgeState.error = { kind: 'settings', message: 'openai-codex 路由注册失败，稍后重试' };
+        console.warn('[bottom-info-bar] Codex 路由注册失败（稍后自动重试）', String((err && err.message) || err));
+      }
+    }
+
+    // 启动即跑 + 30min 周期：读 auth.json → 判定过期 → 续期/写回 → 注入凭据；全程兜底不抛异常
+    async function syncCodexToken() {
+      try {
+        await syncCodexTokenOnce();
+      } catch (err) {
+        codexBridgeState = { ok: false, lastSyncAt: Date.now(), expiresAt: null, error: { kind: 'exception', message: 'Codex 桥接同步异常' } };
+      }
+    }
+
+    async function syncCodexTokenOnce() {
+      if (!codexBridgeState.routeConfigured) await ensureCodexRoute(); // settings 晚就绪/注册失败 → 顺延重试（幂等）
+      const nowMs = Date.now();
+      const nowSec = Math.floor(nowMs / 1000);
+      const read = readCodexAuthFile(CODEX_AUTH_FILE);
+      if (!read.ok) {
+        // 未登录态（auth.json 缺失/损坏）→ 状态标记 + 引导文案，不崩溃
+        codexBridgeState = { ok: false, lastSyncAt: nowMs, expiresAt: null, error: { kind: 'no-login', message: '未找到 Codex 登录凭证（~/.codex/auth.json），请先用 codex CLI 登录' }, routeConfigured: codexBridgeState.routeConfigured };
+        return;
+      }
+      const auth = read.auth;
+      const tokens = auth.tokens && typeof auth.tokens === 'object' ? auth.tokens : {};
+      const access = typeof tokens.access_token === 'string' ? tokens.access_token : '';
+      const refresh = typeof tokens.refresh_token === 'string' ? tokens.refresh_token : '';
+      const lastRefreshMs = Date.parse(auth.last_refresh);
+      if (!access) {
+        codexBridgeState = { ok: false, lastSyncAt: nowMs, expiresAt: null, error: { kind: 'no-key', message: 'Codex 登录凭证缺少 access_token' }, routeConfigured: codexBridgeState.routeConfigured };
+        return;
+      }
+      let expiresAtSec = codexExpiresAt(decodeJwtExp(access), lastRefreshMs);
+      let token = null; // 本次确定写入 DSH 凭据库的令牌（null = 不注入，保留旧凭据）
+      let error = null;
+
+      if (codexNeedsRefresh(expiresAtSec, nowSec)) {
+        if (!refresh) {
+          error = { kind: 'auth', message: 'Codex 令牌临近过期但缺少 refresh_token，请重新登录 codex CLI' };
+        } else {
+          const pair = await refreshCodexTokenPair(refresh);
+          if (pair) {
+            try {
+              const nextRefresh = pair.refresh_token || refresh; // 响应未轮换 refresh_token → 沿用旧值
+              const updated = writeAuthJson(CODEX_AUTH_FILE, auth, pair.access_token, nextRefresh, new Date().toISOString());
+              token = pair.access_token;
+              expiresAtSec = codexExpiresAt(decodeJwtExp(pair.access_token), Date.parse(updated.last_refresh));
+            } catch (err) {
+              // 写回失败（磁盘只读等）→ 新令牌仍内存可用（注入本次会话），下个周期重试写回
+              token = pair.access_token;
+              expiresAtSec = codexExpiresAt(decodeJwtExp(pair.access_token), nowMs);
+              error = { kind: 'write', message: '续期成功但写回 auth.json 失败' };
+            }
+          } else {
+            // 续期失败（401 refresh_token 失效 / 网络异常）→ 重读文件：Codex CLI 可能已自行轮换令牌
+            const reRead = readCodexAuthFile(CODEX_AUTH_FILE);
+            const reAuth = reRead.ok ? reRead.auth : null;
+            const reTokens = reAuth && reAuth.tokens && typeof reAuth.tokens === 'object' ? reAuth.tokens : {};
+            const reAccess = typeof reTokens.access_token === 'string' ? reTokens.access_token : '';
+            const reRefreshMs = reAuth && typeof reAuth.last_refresh === 'string' ? Date.parse(reAuth.last_refresh) : NaN;
+            if (reAuth && reAccess && !isNaN(reRefreshMs) && (isNaN(lastRefreshMs) || reRefreshMs > lastRefreshMs)) {
+              // CLI 已轮换 → 采用文件里的新令牌（不再用过期 refresh_token 重试）
+              token = reAccess;
+              expiresAtSec = codexExpiresAt(decodeJwtExp(reAccess), reRefreshMs);
+            } else {
+              error = { kind: 'auth', message: 'Codex 令牌续期失败（refresh_token 可能失效），请重新登录 codex CLI' };
+            }
+          }
+        }
+      } else {
+        token = access; // 未临近过期 → 直接用现有令牌
+      }
+
+      // 注入凭据：成功取得令牌才注入；同值跳过（内存比对），避免无谓写盘与 credentials/updated 广播
+      if (token && token !== codexInjectedToken) {
+        try {
+          await ctx.credentials.set('OPENAI_CODEX_API_KEY', token);
+          codexInjectedToken = token;
+        } catch (err) {
+          if (!error) error = { kind: 'credentials', message: 'Codex 凭据注入失败' };
+        }
+      }
+      codexBridgeState = {
+        ok: !error,
+        lastSyncAt: nowMs,
+        expiresAt: expiresAtSec != null ? expiresAtSec * 1000 : null,
+        error: error,
+        routeConfigured: codexBridgeState.routeConfigured,
+      };
+    }
+
     // ---------- RPC 路由（webServer HTTP，替代动态沙箱 harness.handle） ----------
     const ROUTE_PREFIX = '/_dsh/bottom-info-bar';
     const ROUTES = {
@@ -1085,6 +1288,9 @@ export default {
       },
       getSubscriptionSnapshot: function () {
         return getSubscriptionSnapshotRpc();
+      },
+      getCodexBridgeStatus: function () {
+        return { ...codexBridgeState }; // 只读：令牌值绝不进状态，可安全经 RPC 暴露
       },
       setDisplayMode: function (args) {
         const mode = args && typeof args === 'object' ? args.mode : null;
@@ -1191,6 +1397,11 @@ export default {
     refreshActiveSubscriptions(); // 惰性：无客户端请求过订阅源则不发起网络请求
     ctx.interval(refreshAllBalances, 60000);
     ctx.interval(refreshActiveSubscriptions, 60000);
+
+    // ---------- Codex 桥接启动：注册路由 + 立即同步 + 30min 周期维护（令牌仅内存/凭据库/auth.json，不打印） ----------
+    ensureCodexRoute();
+    syncCodexToken();
+    ctx.interval(syncCodexToken, CODEX_SYNC_INTERVAL_MS);
 
     // 卸载时冲刷未落盘的记账记录
     return function () {
