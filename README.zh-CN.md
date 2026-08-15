@@ -12,6 +12,7 @@
 ## 特性
 
 - **双模式信息栏**：自动检测当前服务商是**订阅制**（Codex / OpenCode Go）还是**余额制**。订阅制 row2 只显示三类信息：**订阅服务 + 模型**（如 `OpenCode Go · V4 Flash`）、**5小时 / 周 / 月** 三窗口额度（如 `5h 9% · 周 62% · 月 40%`）、**距重置倒计时**（最紧窗口，天级格式如 `距重置 1d 21h`），任一窗口 ≥90% 红色 ⚠ 预警；余额/时段/本对话花费等余额制信息一律不显示。余额制保持原样。两种模式互斥替换，绝不叠加
+- **Codex 订阅桥接（v1.2.0）**：在 DSH 里直接用 ChatGPT Plus/Pro 订阅额度对话——模型选择器出现 Codex 系列模型（`gpt-5.3-codex-spark`、`gpt-5.5` …），选中即用、无需配置密钥。桥接自动读取本机 `~/.codex/auth.json`（需先 `codex login` 一次），令牌过期前自动续期并注入 DSH，信息栏自动切订阅制显示额度窗口
 - **一体替换**：默认替换原生统计栏，原生信息（轮·步 / LLM 耗时 / 工具调用 / 缓存命中 / 输入输出 tokens）照常显示、格式与原生一致；**首 token 平均 / tok/s** 两个速度指标移入 hover 浮窗，单行一眼看完
 - **服务商 + 具体模型**：自动识别并美化显示（DeepSeek V4 Flash、Kimi K3、GLM 4.6 …），服务商名加粗
 - **实时余额**：DeepSeek `/user/balance` 真实 API，60 秒自动刷新；失败保留上次快照并提示，不中断使用
@@ -58,8 +59,14 @@ dsh plugin --profile web add /path/to/bottom-info-bar/plugin
 - **模式**：按当前服务商自动切换 余额制 / 订阅制（`codex` / `chatgpt` / `opencode-go` / `opencode` → 订阅制，其余 → 余额制）；内部提供 `billingMode: 'auto' | 'balance' | 'subscription'` 开关（默认 `auto`）可强制指定模式。
 - **数据口径**：高峰时段为北京时间 9:00–12:00、14:00–18:00；价格表内置 DeepSeek V4 系列与 OpenAI 参考价，未收录模型不参与花费统计。
 - **订阅额度数据源**：
-  - **Codex**：自动读取 `~/.codex/auth.json`（Codex CLI 登录态），无需额外配置；token 仅在本机内存使用，绝不落盘 / 打印 / 入库。
+  - **Codex**：自动读取 `~/.codex/auth.json`（Codex CLI 登录态），无需额外配置；额度查询的 token 仅内存使用。v1.2.0 起模型调用复用同一登录态：令牌过期前自动续期，并写入 DSH 凭据库（`~/.dsh/.credentials.yaml`，0600）供模型路由使用，模型选择器随即出现 Codex 模型。token 绝不打印 / 进日志 / 入库。
   - **OpenCode Go**：在 **设置 → 模型** 配置 `OPENCODE_GO_API_KEY`，或先用 opencode CLI 登录订阅（写入 `~/.local/share/opencode/auth.json` 的 `opencode-go` 条目）。未配置时显示"未配置 OpenCode Go"引导，不报错。
+
+#### Codex 桥接：已知限制
+
+- `chatgpt.com` 后端为**非公开接口**，可能随时变更或失效；失效时自动降级（保留上次快照、自动重试），绝不崩溃
+- 可用模型以订阅计划为准——部分模型（如某些 `gpt-5.x`）可能**仅 Pro 订阅可用**
+- 桥接依赖 Codex CLI 登录态，首次使用前先执行一次 `codex login`
 
 ### 数据存储（插件专属目录）
 
@@ -81,9 +88,12 @@ dsh plugin --profile web add /path/to/bottom-info-bar/plugin
 
 ```bash
 cd bottom-info-bar
-./uninstall.sh
+./uninstall.sh                        # 仅卸载插件
+./uninstall.sh --purge-codex          # 卸载并清理 Codex 桥接配置与凭据
 # 或：dsh plugin --profile web remove bottom-info-bar
 ```
+
+`--purge-codex` 额外移除 `~/.dsh/settings.yaml` 中的 `llm-pi-ai.providers.openai-codex` 段（修改前自动备份）与 `~/.dsh/.credentials.yaml` 中的 `OPENAI_CODEX_API_KEY` 行，其余配置原样保留。运行中的 DSH 把配置/凭据保存在内存里——**请重启 `dsh web` 使清理生效**。`~/.codex/auth.json`（Codex CLI 自己的登录态）不会被改动；若日后重新安装使用桥接，配置会自动重建。
 
 重启后原生统计栏自动恢复，插件无残留（记账数据文件保留于 `~/.dsh/bottom-info-bar/`，如需重置统计请手动删除）。
 

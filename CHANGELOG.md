@@ -13,6 +13,22 @@
 - **本对话金额归属**：新开对话不再显示上一个会话的花费（客户端多路获取当前会话 ID；宿主对空/未命中会话返回 ¥0.000 而非回退最近会话；会话 ID 前缀差异归一化）
 - **回复完成即时更新金额**：会话统计变化时自动刷新，不再等最长 30 秒的轮询间隔
 
+## [1.2.0] - 2026-08-17
+
+> v1.2.0 尚未发布（未打 tag / 未发 Release）；本文档为发布前承诺说明。
+> 已知限制：`chatgpt.com` 后端为非公开接口，可能变更或失效（失效时自动降级、不崩溃）；可用模型以订阅计划为准（如部分 `gpt-5.x` 可能仅 Pro 订阅可用）。
+
+### Added
+
+- **Codex 订阅桥接**：在 DSH 内直接使用 ChatGPT Plus/Pro 订阅额度对话——启动时幂等注册 `openai-codex` 模型路由（`llm-pi-ai.providers.openai-codex`，`apiKeyEnv: OPENAI_CODEX_API_KEY`），模型选择器出现 Codex 系列模型，选中即用，不填密钥、不扫码
+- **令牌自动管理与续期**：读 `~/.codex/auth.json`（需先 `codex login` 一次）；JWT `exp` 判定过期（剩余 <45 分钟才续期），官方刷新接口续期后安全写回（保留 account_id 等字段、原子写 tmp+rename），最新令牌注入 DSH 凭据库立即生效；启动即同步一次 + 每 30 分钟周期
+- **信息栏订阅制联动**：桥接启用后信息栏自动切订阅制，显示订阅窗口额度与距重置倒计时（如 `Codex · … | 周 43% | 距重置 1d 21h`）
+
+### Security
+
+- **令牌全程受控**：仅存于内存 + `~/.codex/auth.json`（0600）+ DSH 凭据库（0600）；不打印、不进日志、不进仓库
+- **卸载清理**：`./uninstall.sh --purge-codex` 安全移除 `llm-pi-ai.providers.openai-codex` 配置（修改前自动备份）与 `OPENAI_CODEX_API_KEY` 凭据行，其余配置原样保留；`~/.codex/auth.json`（codex CLI 自身登录态）不动
+
 ## [1.1.0] - 2026-08-17
 
 > v1.1.0 尚未发布（未打 tag / 未发 Release）；本文档为发布前承诺说明。

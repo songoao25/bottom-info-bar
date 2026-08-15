@@ -12,6 +12,7 @@ A single-line information bar for [DeepSeek Harness](https://github.com/deepseek
 ## Features
 
 - **Dual-mode billing bar** — Auto-detects whether the active provider is subscription-based (Codex / OpenCode Go) or balance-based. Subscription mode shows exactly three items: the **subscription service + model** (e.g. `OpenCode Go · V4 Flash`), the **5-hour / weekly / monthly quota windows** (e.g. `5h 9% · 周 62% · 月 40%`), and a **countdown to the tightest reset** (e.g. `距重置 1d 21h`), plus a ⚠ alert when any window hits 90%+. Balance mode stays exactly as before. The two modes replace each other, never overlap.
+- **Codex subscription bridge (v1.2.0)** — Use your ChatGPT Plus / Pro subscription right inside DSH: pick a Codex model (`gpt-5.3-codex-spark`, `gpt-5.5`, …) in the model selector and chat — it draws on your subscription quota with no API key setup. The bridge reads your existing `~/.codex/auth.json` (run `codex login` once first), auto-refreshes the token before it expires and keeps it injected into DSH, and the info bar automatically switches to subscription mode showing your quota windows.
 - **Drop-in replacement** — Replaces the native stats row while keeping its core original information (turns/steps, LLM latency, tool calls, cache hit rate, in/out tokens) with a native-consistent layout. Speed metrics (TTFT, tok/s) move to the hover tooltip so the row stays on a single line.
 - **Provider & model detection** — Auto-detects and pretty-prints the active provider and model (DeepSeek V4 Flash, Kimi K3, GLM 4.6, …) with a bold provider name.
 - **Live balance** — Fetches real balance from DeepSeek's `/user/balance` API, auto-refreshes every 60 s, and keeps the last known snapshot on failure so usage is never interrupted.
@@ -58,8 +59,14 @@ For detailed installation, troubleshooting, and upgrade instructions, see [docs/
 - **Data scope**: peak hours are 09:00–12:00 and 14:00–18:00 (Beijing time). Built-in pricing covers DeepSeek V4 models plus OpenAI reference prices; models not in the table are excluded from spend statistics.
 - **Mode**: the bar switches automatically between balance mode and subscription mode based on the active provider (`codex` / `chatgpt` / `opencode-go` / `opencode` → subscription; everything else → balance). An internal `billingMode: 'auto' | 'balance' | 'subscription'` setting (default `auto`) allows forcing a mode.
 - **Subscription sources**:
-  - **Codex**: reads `~/.codex/auth.json` (your Codex CLI login) automatically — nothing to configure. Tokens are used in memory only: never written to disk, never logged, never committed.
+  - **Codex**: reads `~/.codex/auth.json` (your Codex CLI login) automatically — nothing to configure. Quota display keeps tokens in memory only. Since v1.2.0, model calls reuse the same login: the bridge refreshes the token before expiry and stores it in DSH's own credential store (`~/.dsh/.credentials.yaml`, mode `0600`) so the Codex models appear in the model selector. Tokens are never printed, logged, or committed.
   - **OpenCode Go**: set `OPENCODE_GO_API_KEY` under **Settings → Models**, or log in with the opencode CLI (writes the `opencode-go` entry in `~/.local/share/opencode/auth.json`). Without a key the bar shows a "not configured" hint instead of an error.
+
+#### Codex bridge: known limitations
+
+- The `chatgpt.com` backend is an **undocumented interface** — it may change or stop working at any time; failures degrade gracefully (last snapshot kept, auto-retry), never a crash.
+- Available models depend on your subscription plan — some models (e.g. certain `gpt-5.x`) may be **Pro-only**.
+- The bridge requires a working Codex CLI login; run `codex login` once before first use.
 
 ### Data storage (plugin-owned directory)
 
@@ -81,9 +88,12 @@ All spend data lives in the plugin's own data directory, isolated from other plu
 
 ```bash
 cd bottom-info-bar
-./uninstall.sh
+./uninstall.sh                       # remove the plugin only
+./uninstall.sh --purge-codex         # also purge the Codex bridge config & credential
 # or: dsh plugin --profile web remove bottom-info-bar
 ```
+
+`--purge-codex` additionally removes the `llm-pi-ai.providers.openai-codex` block from `~/.dsh/settings.yaml` (backed up first) and the `OPENAI_CODEX_API_KEY` line from `~/.dsh/.credentials.yaml`, keeping everything else intact. Running DSH processes keep config/credentials in memory — **restart `dsh web`** for the purge to take effect. Your `~/.codex/auth.json` (the Codex CLI's own login) is never touched; if you reinstall and use the bridge later, the config is recreated automatically.
 
 After restarting, the native stats row returns automatically with no residue (the ledger file under `~/.dsh/bottom-info-bar/` is your data and is kept; remove it manually if you want to reset the statistics).
 

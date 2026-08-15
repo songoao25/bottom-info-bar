@@ -21,18 +21,19 @@ if (build.status !== 0) {
 console.log('build OK → lib/')
 
 const cases = [
-  ['smoke-static-host', ['tests/smoke-static-host.mjs'], join(root)],
-  ['test-static-client（plugin/src/client-bundle.js）', ['tests/test-static-client.js'], join(root)],
-  ['test-display-name（host.js）', ['tests/test-display-name.js'], join(root)],
-  ['test-density-toggle（host.js + client-bundle.js）', ['tests/test-density-toggle.js'], join(root)],
-  ['test-spend-accounting（host.js）', ['tests/test-spend-accounting.js'], join(root)],
-  ['test-dual-mode（host.js 双模式逻辑 + client 订阅渲染）', ['tests/test-dual-mode.js'], join(root)],
-  ['check-host（host.js）', ['tests/check-host.js', HOST], join(root)],
+  ['smoke-static-host', ['tests/smoke-static-host.mjs'], join(root), process.execPath],
+  ['test-static-client（plugin/src/client-bundle.js）', ['tests/test-static-client.js'], join(root), process.execPath],
+  ['test-display-name（host.js）', ['tests/test-display-name.js'], join(root), process.execPath],
+  ['test-density-toggle（host.js + client-bundle.js）', ['tests/test-density-toggle.js'], join(root), process.execPath],
+  ['test-spend-accounting（host.js）', ['tests/test-spend-accounting.js'], join(root), process.execPath],
+  ['test-dual-mode（host.js 双模式逻辑 + client 订阅渲染）', ['tests/test-dual-mode.js'], join(root), process.execPath],
+  ['test-uninstall-purge（uninstall.sh --purge-codex 清理逻辑）', ['tests/test-uninstall-purge.sh'], join(root), 'bash'],
+  ['check-host（host.js）', ['tests/check-host.js', HOST], join(root), process.execPath],
 ]
 
 let failed = 0
-for (const [name, args, cwd] of cases) {
-  const r = spawnSync(process.execPath, args, { cwd, encoding: 'utf8' })
+for (const [name, args, cwd, cmd = process.execPath] of cases) {
+  const r = spawnSync(cmd, args, { cwd, encoding: 'utf8' })
   const tail = (r.stdout || '').split('\n').filter(Boolean).slice(-3).join(' | ')
   const ok = r.status === 0
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}  →  ${tail || r.stderr}`)
