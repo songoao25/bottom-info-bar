@@ -9,6 +9,8 @@ pnpm-lock.yaml
 *.swp
 *.swo
 *~
+*.orig
+*.rej
 
 # 密钥与敏感文件（永远不得入库）
 *.pem
@@ -20,3 +22,7 @@ credentials.yaml
 # 打包产物
 *.tgz
 *.tar.gz
+
+# IDE
+.idea/
+.vscode/

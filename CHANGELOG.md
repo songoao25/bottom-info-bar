@@ -1,10 +1,14 @@
 # Changelog
 
-## [1.0.0] — 2026-08-15
+本项目的版本记录遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
+
+## [Unreleased]
+
+## [1.0.0] - 2026-08-15
 
 首个可分发版本。以静态插件包（bundle）形式安装，安装一次后每次打开 DeepSeek Harness 自动生效，无需手动重新加载。
 
-### 功能
+### Added
 
 - **一体替换原生统计栏**：原生统计（轮·步 / LLM 耗时 / 工具调用 / 首 token 平均 / tok/s / 缓存命中 / 输入输出 tokens）与本插件信息合并为一条，格式与原生一致
 - **服务商 + 具体模型自动识别**：DeepSeek V4 Flash、Kimi K3、GLM 4.6 等自动美化显示，服务商名加粗
@@ -15,7 +19,9 @@
 - **完整 / 简洁**：单击整条信息栏切换
 - **余额预警**：低于 ¥20 显示 ⚠
 
-### 修复
+### Fixed
 
 - **本对话花费始终显示**：新对话 / 对话刚开始（尚无记账）时不再隐藏，显示 `本对话 ¥0.000`；hover 仍可查看持久化的 今天 / 近一月 / 全部
 - **原生统计行**：完整模式下对话刚开始即显示 `0 轮 · 0 步`，不再等第一步完成才出现
+
+[1.0.0]: https://github.com/songoao25/bottom-info-bar/releases/tag/v1.0.0

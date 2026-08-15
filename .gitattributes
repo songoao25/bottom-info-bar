@@ -1,0 +1,9 @@
+# 统一换行：文本文件用 LF；shell 脚本强制 LF（Windows clone 后仍可直接 bash 执行）
+* text=auto eol=lf
+*.sh text eol=lf
+*.md text
+*.js text
+*.mjs text
+*.json text
+*.yml text
+*.yaml text

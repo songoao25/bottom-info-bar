@@ -15,6 +15,10 @@
     "type": "git",
     "url": "https://github.com/songoao25/bottom-info-bar.git"
   },
+  "homepage": "https://github.com/songoao25/bottom-info-bar",
+  "bugs": {
+    "url": "https://github.com/songoao25/bottom-info-bar/issues"
+  },
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",

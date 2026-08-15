@@ -112,9 +112,13 @@ export default {
       return total;
     }
 
+    const balanceSeq = {}; // 每 provider 刷新序号：仅最新一次请求可写入快照，防慢请求覆盖新数据
+
     function refreshProviderBalance(pid) {
       const prov = PROVIDERS[pid];
       if (!prov) return;
+      const seq = (balanceSeq[pid] || 0) + 1;
+      balanceSeq[pid] = seq;
       if (!prov.balanceAPI) {
         // 记账回退：估算余额 = 起始充值额 - 累计花费
         const spend = providerSpend(pid);
@@ -135,24 +139,24 @@ export default {
           return;
         }
         try {
-          const spec = ctx.shell.resolve({
-            command: 'curl -s --max-time 15 -H "Authorization: Bearer ' + cred.value + '" ' + prov.balanceAPI,
-            timeoutMs: 20000,
+          // API Key 经 HTTP 头传递，不进子进程命令行（避免 ps 可见 / shell 注入）
+          const res = await fetch(prov.balanceAPI, {
+            headers: { Authorization: 'Bearer ' + cred.value },
+            signal: AbortSignal.timeout(15000),
           });
-          const result = await ctx.shell.run(spec);
-          if (result.exitCode !== 0) {
-            balances[pid] = { data: balances[pid] && balances[pid].data, fetchedAt: balances[pid] && balances[pid].fetchedAt, error: { kind: 'http', message: '请求失败（curl 退出码 ' + result.exitCode + '）' } };
+          if (!res.ok) {
+            if (balanceSeq[pid] === seq) balances[pid] = { data: balances[pid] && balances[pid].data, fetchedAt: balances[pid] && balances[pid].fetchedAt, error: { kind: 'http', message: '请求失败（HTTP ' + res.status + '）' } };
             return;
           }
-          const body = JSON.parse(result.stdout.text);
+          const body = await res.json();
           const parsed = prov.parseBalance(body);
           if (!parsed) {
-            balances[pid] = { data: balances[pid] && balances[pid].data, fetchedAt: balances[pid] && balances[pid].fetchedAt, error: { kind: 'parse', message: '响应格式异常' } };
+            if (balanceSeq[pid] === seq) balances[pid] = { data: balances[pid] && balances[pid].data, fetchedAt: balances[pid] && balances[pid].fetchedAt, error: { kind: 'parse', message: '响应格式异常' } };
             return;
           }
-          balances[pid] = { data: parsed, fetchedAt: Date.now(), error: null };
+          if (balanceSeq[pid] === seq) balances[pid] = { data: parsed, fetchedAt: Date.now(), error: null };
         } catch (err) {
-          balances[pid] = { data: balances[pid] && balances[pid].data, fetchedAt: balances[pid] && balances[pid].fetchedAt, error: { kind: 'exception', message: String((err && err.message) || err) } };
+          if (balanceSeq[pid] === seq) balances[pid] = { data: balances[pid] && balances[pid].data, fetchedAt: balances[pid] && balances[pid].fetchedAt, error: { kind: 'exception', message: String((err && err.message) || err) } };
         }
       })();
     }
@@ -332,12 +336,12 @@ export default {
     let dirty = false;
 
     function flushSave() {
-      dirty = false;
       if (saveDisposer) { saveDisposer(); saveDisposer = null; }
       try {
-        mkdirSync(DATA_DIR, { recursive: true });
-        writeFileSync(DATA_FILE, JSON.stringify(usageRecords));
-      } catch (err) { /* 落盘失败不影响主流程（下次记账会重试） */ }
+        mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+        writeFileSync(DATA_FILE, JSON.stringify(usageRecords), { mode: 0o600 });
+        dirty = false; // 写盘成功后才清除脏标记：失败时保留，卸载冲刷可重试
+      } catch (err) { /* 落盘失败不影响主流程；保留 dirty，下次记账/卸载时重试 */ console.warn('[bottom-info-bar] 记账落盘失败', String((err && err.message) || err)); }
     }
 
     // 防抖落盘：记账后 4s 内合并写入；插件卸载时立即冲刷
@@ -357,7 +361,7 @@ export default {
         provider: options.provider || '',
         sessionId: options.sessionId || '',
         purpose: options.purpose || '',
-        input: usage.inputTokens || 0,
+        input: usage.uncachedInputTokens != null ? usage.uncachedInputTokens : (usage.inputTokens || 0),
         cacheRead: usage.cacheReadTokens || 0,
         cacheWrite: usage.cacheWriteTokens || 0,
         output: usage.outputTokens || 0,
@@ -372,6 +376,7 @@ export default {
       try {
         stream = await next();
       } catch (err) {
+        console.warn('[bottom-info-bar] llm/stream 获取失败，本次不记账', String((err && err.message) || err));
         return;
       }
       try {
@@ -454,8 +459,12 @@ export default {
           if (sessions[i].sessionId === sessionId) { target = sessions[i]; break; }
         }
       }
-      if (!target) target = sessions[sessions.length - 1];
-      const denom = target.input + target.cacheRead;
+      if (!target) {
+        // sessionId 明确传入但未命中（新对话尚无记账）→ 返回 null，客户端显示 ¥0.000，而非回退上一会话
+        if (sessionId) return null;
+        target = sessions[sessions.length - 1];
+      }
+      const denom = target.input + target.cacheRead + target.cacheWrite;
       const tokens = target.input + target.cacheRead + target.cacheWrite + target.output;
       return {
         input: target.input,
@@ -468,9 +477,17 @@ export default {
       };
     }
 
+    function activeCurrency() {
+      const snap = balances[config.activeProvider];
+      if (snap && snap.data && snap.data.currency) return snap.data.currency;
+      const entry = PRICING[DEFAULT_MODEL];
+      return entry ? entry.currency : 'CNY';
+    }
+
     function spendSummary(nowMs) {
       const snap = balances[config.activeProvider] || { data: null };
       const balance = snap.data ? snap.data.total : null;
+      const cur = activeCurrency();
       const cutoff = nowMs - SPEND_DAYS * 86400 * 1000;
       let total = 0;
       let offpeakTotal = 0;
@@ -478,6 +495,7 @@ export default {
       for (let i = 0; i < usageRecords.length; i++) {
         const r = usageRecords[i];
         if (r.ts < cutoff) continue;
+        if (modelCurrency(r.model) !== cur) continue; // 只聚合活动币种，避免跨币种相加
         const c = costOf(r, false);
         if (c == null) continue;
         total += c;
@@ -502,28 +520,32 @@ export default {
       };
     }
 
-    // ---------- 今日花费（北京时间当日累计） ----------
+    // ---------- 今日花费（北京时间当日累计，仅活动币种） ----------
     function todaySpend(nowMs) {
       const key = beijingDayKey(nowMs);
+      const cur = activeCurrency();
       let total = 0;
       for (let i = 0; i < usageRecords.length; i++) {
         const r = usageRecords[i];
         if (beijingDayKey(r.ts) !== key) continue;
+        if (modelCurrency(r.model) !== cur) continue;
         const c = costOf(r, false);
         if (c != null) total += c;
       }
       return Math.round(total * 1000) / 1000;
     }
 
-    // ---------- 本月/近30天花费 ----------
+    // ---------- 本月/近30天花费（仅活动币种） ----------
     function monthSpend(nowMs) {
       const d = new Date(nowMs + 8 * 3600 * 1000);
       const key = d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0');
+      const cur = activeCurrency();
       let total = 0;
       for (let i = 0; i < usageRecords.length; i++) {
         const r = usageRecords[i];
         const rd = new Date(r.ts + 8 * 3600 * 1000);
         if (rd.getUTCFullYear() + '-' + String(rd.getUTCMonth() + 1).padStart(2, '0') !== key) continue;
+        if (modelCurrency(r.model) !== cur) continue;
         const c = costOf(r, false);
         if (c != null) total += c;
       }
@@ -531,10 +553,12 @@ export default {
     }
     function last30dSpend(nowMs) {
       const cutoff = nowMs - 30 * 86400 * 1000;
+      const cur = activeCurrency();
       let total = 0;
       for (let i = 0; i < usageRecords.length; i++) {
         const r = usageRecords[i];
         if (r.ts < cutoff) continue;
+        if (modelCurrency(r.model) !== cur) continue;
         const c = costOf(r, false);
         if (c != null) total += c;
       }
@@ -619,9 +643,12 @@ export default {
 
     // ---------- 全部花费 ----------
     function totalSpend() {
+      const cur = activeCurrency();
       let total = 0;
       for (let i = 0; i < usageRecords.length; i++) {
-        const c = costOf(usageRecords[i], false);
+        const r = usageRecords[i];
+        if (modelCurrency(r.model) !== cur) continue;
+        const c = costOf(r, false);
         if (c != null) total += c;
       }
       return Math.round(total * 1000) / 1000;
@@ -725,7 +752,7 @@ export default {
       },
       setActiveProvider: function (args) {
         const pid = args && typeof args === 'object' ? args.provider : null;
-        if (pid && PROVIDERS[pid]) {
+        if (pid && Object.hasOwn(PROVIDERS, pid)) {
           config.activeProvider = pid;
           refreshProviderBalance(pid);
         }
@@ -772,7 +799,13 @@ export default {
         let size = 0;
         req.on('data', function (chunk) {
           size += chunk.length;
-          if (size > maxBytes) { reject(new Error('body too large')); req.destroy(); return; }
+          if (size > maxBytes) {
+            const err = new Error('body too large');
+            err.status = 413;
+            reject(err);
+            req.destroy();
+            return;
+          }
           chunks.push(chunk);
         });
         req.on('end', function () { resolve(Buffer.concat(chunks).toString('utf8')); });
@@ -804,12 +837,12 @@ export default {
                 return;
               }
               const method = decodeURIComponent(path.slice(ROUTE_PREFIX.length + 1));
-              const fn = ROUTES[method];
+              const fn = Object.hasOwn(ROUTES, method) ? ROUTES[method] : null;
               if (typeof fn !== 'function') {
                 respond(res, 404, { error: 'unknown method: ' + method });
                 return;
               }
-              if (MUTATING[method] && !sameOrigin(req)) {
+              if (Object.hasOwn(MUTATING, method) && !sameOrigin(req)) {
                 respond(res, 403, { error: 'cross-origin request rejected' });
                 return;
               }
@@ -823,7 +856,8 @@ export default {
               const result = await fn(args);
               respond(res, 200, result);
             } catch (err) {
-              respond(res, 500, { error: String((err && err.message) || err) });
+              const status = (err && err.status) || 500;
+              respond(res, status, { error: status === 500 ? 'internal error' : String((err && err.message) || err) });
             }
           },
         });

@@ -147,6 +147,9 @@ check('webServer 路由已注册（prefix /_dsh/bottom-info-bar）',
   check('全部花费 ≈ 本会话花费（totalSpend 3 位四舍五入 vs 原始值）',
     typeof r.payload.totalSpend === 'number' && Math.abs(r.payload.totalSpend - cs.costs.CNY) < 0.001,
     'totalSpend=' + r.payload.totalSpend + ' costs=' + cs.costs.CNY)
+  const r2 = await invoke(first.captured.route, '/_dsh/bottom-info-bar/getUsageSummary', 'POST', JSON.stringify({ sessionId: 'nonexistent-session' }))
+  check('新会话（sessionId 未命中）→ currentSession 为 null（不回退上一会话）', r2.payload && r2.payload.currentSession === null,
+    JSON.stringify(r2.payload && r2.payload.currentSession))
 }
 
 // ---------- 持久化：冲刷落盘 → 文件存在且含记录 ----------

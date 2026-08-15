@@ -22,11 +22,15 @@ function rpc(method, args) {
     body: JSON.stringify(args || {}),
   }).then(function (res) {
     if (!res.ok) {
-      return res.json().then(function (body) {
+      return res.text().then(function (raw) {
+        let body = null;
+        try { body = JSON.parse(raw); } catch (e) { /* 非 JSON 错误体 */ }
         throw new Error((body && body.error) || ('HTTP ' + res.status));
       });
     }
-    return res.json();
+    return res.text().then(function (raw) {
+      try { return JSON.parse(raw); } catch (e) { throw new Error('响应解析失败'); }
+    });
   });
 }
 
@@ -67,7 +71,10 @@ module.exports = {
       await new Promise(function (resolve) { window.setTimeout(resolve, 300); });
       slots = ctx.slots || ctx.get('slots');
     }
-    if (slots === undefined) return;
+    if (slots === undefined) {
+      console.warn('[bottom-info-bar] slots 服务 18s 内未就绪，信息栏未注册');
+      return;
+    }
 
     ctx.effect(function () {
       const disposeStyles = installStyles();
@@ -169,7 +176,8 @@ module.exports = {
         const s = ms / 1e3;
         if (s < 60) return Math.round(s * 10) / 10 + 's';
         const whole = Math.round(s);
-        return Math.floor(whole / 60) + 'm' + (whole % 60) + 's';
+        const sec = whole % 60;
+        return Math.floor(whole / 60) + 'm' + String(sec).padStart(2, '0') + 's';
       }
       function formatTps(tps) {
         const clamped = Math.max(0, tps);

@@ -1,5 +1,10 @@
 # Bottom Info Bar（底部信息栏插件）
 
+[![License: MIT](https://img.shields.io/github/license/songoao25/bottom-info-bar)](https://github.com/songoao25/bottom-info-bar/blob/main/LICENSE)
+[![Release](https://img.shields.io/github/v/release/songoao25/bottom-info-bar)](https://github.com/songoao25/bottom-info-bar/releases)
+[![Last commit](https://img.shields.io/github/last-commit/songoao25/bottom-info-bar)](https://github.com/songoao25/bottom-info-bar)
+[![CI](https://img.shields.io/github/actions/workflow/status/songoao25/bottom-info-bar/ci.yml)](https://github.com/songoao25/bottom-info-bar/actions)
+
 > DeepSeek Harness 底部信息栏：替换对话输入框下方的原生统计栏，把「原生统计 + 模型与余额 + 峰谷定价 + 真实花费」合并为一条信息栏。安装一次，每次打开 DeepSeek Harness 自动生效。
 
 *An information bar for DeepSeek Harness: replaces the native stats line under the composer with provider/model, live balance, peak/off-peak pricing with countdown, and real per-session spend.*
@@ -48,6 +53,8 @@ dsh plugin --profile web add /path/to/bottom-info-bar/plugin
 - 余额需要配置 DeepSeek API Key：在 **设置 → 模型** 中填写（环境变量名 `DEEPSEEK_API_KEY`）。未配置时信息栏会给出引导文案，不影响其他功能。
 - 数据口径：高峰时段为北京时间 9:00–12:00、14:00–18:00；价格表内置 DeepSeek V4 系列与 OpenAI 示例价，未收录模型不参与花费统计。
 - 记账数据：持久化保存于 `~/.dsh/bottom-info-bar/usage-records.json`（重启不丢失；删除该文件即清空统计）。
+- 花费口径：按**当前服务商币种**聚合（DeepSeek 为 CNY，OpenAI 示例价为 USD），跨币种记录不混加；未收录模型不参与花费统计。
+- 记录上限：记账文件最多保留 3000 条（超出自动裁剪最早记录），足够覆盖数月的正常使用。
 
 ## 卸载
 
@@ -57,7 +64,7 @@ cd bottom-info-bar
 # 或：dsh plugin --profile web remove bottom-info-bar
 ```
 
-重启后原生统计栏自动恢复，无残留。
+重启后原生统计栏自动恢复，插件无残留（记账数据文件保留于 `~/.dsh/bottom-info-bar/`，可手动删除清空统计）。
 
 ## 常见问题
 

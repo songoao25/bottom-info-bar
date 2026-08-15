@@ -8,15 +8,15 @@
 
 ## 安装
 
-三种方式任选其一：
+两种方式任选其一：
 
 ```bash
 # 方式一：一键脚本（推荐）
 git clone https://github.com/songoao25/bottom-info-bar.git
 cd bottom-info-bar
 ./install.sh
-# 默认安装到 web profile；指定其他 profile：
-./install.sh --profile tui
+# 默认安装到 web profile；其他 profile 需以 `dsh web` 方式使用：
+./install.sh --profile <profile名>
 
 # 方式二：dsh 插件命令
 git clone https://github.com/songoao25/bottom-info-bar.git
@@ -65,7 +65,7 @@ cd bottom-info-bar
 dsh plugin --profile web remove bottom-info-bar
 ```
 
-重启后原生统计栏自动恢复（插件 unload 时槽位自动退位，这是 DSH 插槽特性），无残留文件。
+重启后原生统计栏自动恢复（插件 unload 时槽位自动退位，这是 DSH 插槽特性）。插件代码无残留；记账数据文件 `~/.dsh/bottom-info-bar/usage-records.json` 属持久化数据，卸载不会删除，如需清空统计请手动删除。
 
 ## 故障排查
 
