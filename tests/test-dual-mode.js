@@ -66,6 +66,7 @@ check('provider=codex → subscription', detectBillingMode('codex', 'auto').mode
 check('provider=chatgpt → subscription', detectBillingMode('chatgpt', 'auto').mode, 'subscription');
 check('provider=opencode-go → subscription', detectBillingMode('opencode-go', 'auto').mode, 'subscription');
 check('provider=opencode → subscription', detectBillingMode('opencode', 'auto').mode, 'subscription');
+check('provider=openai-codex → subscription', detectBillingMode('openai-codex', 'auto').mode, 'subscription');
 check('provider=deepseek → balance', detectBillingMode('deepseek', 'auto').mode, 'balance');
 check('provider=openai → balance', detectBillingMode('openai', 'auto').mode, 'balance');
 check('provider=openrouter → balance', detectBillingMode('openrouter', 'auto').mode, 'balance');
@@ -75,7 +76,7 @@ check('手动覆盖 balance：codex + billingMode=balance → balance', detectBi
 check('手动覆盖 subscription：deepseek + billingMode=subscription → subscription', detectBillingMode('deepseek', 'subscription').mode, 'subscription');
 check('手动覆盖理由 = manual-override', detectBillingMode('codex', 'balance').reason, 'manual-override');
 check('auto 理由含 provider 标识', detectBillingMode('codex', 'auto').reason, 'provider:codex');
-check('订阅 provider 集合配置正确', JSON.stringify(SUBSCRIPTION_PROVIDERS), JSON.stringify(['codex', 'chatgpt', 'opencode-go', 'opencode']));
+check('订阅 provider 集合配置正确', JSON.stringify(SUBSCRIPTION_PROVIDERS), JSON.stringify(['codex', 'chatgpt', 'opencode-go', 'opencode', 'openai-codex']));
 
 // ---- 2) 窗口时长映射边界 ----
 check('18000 → five_hour', codexWindowKey(18000), 'five_hour');

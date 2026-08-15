@@ -13,7 +13,7 @@ const DATA_FILE = join(DATA_DIR, 'usage-records.json')
 
 // ---------- 双模式（余额制 / 订阅制）配置 ----------
 // 订阅制 provider 集合：这些 provider 走"额度窗口"显示而非余额（可在此增删）
-const SUBSCRIPTION_PROVIDERS = ['codex', 'chatgpt', 'opencode-go', 'opencode']
+const SUBSCRIPTION_PROVIDERS = ['codex', 'chatgpt', 'opencode-go', 'opencode', 'openai-codex']
 // 订阅窗口时长（秒）：5 小时 / 7 天 / 30 天；映射带 5% 容差（接口值可能微调）
 const WINDOW_SECONDS = { five_hour: 18000, seven_day: 604800, monthly: 2592000 }
 const WINDOW_LABELS = { five_hour: '5小时', seven_day: '周', monthly: '月' }

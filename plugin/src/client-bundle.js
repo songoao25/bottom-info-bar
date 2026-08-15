@@ -274,7 +274,7 @@ module.exports = {
       // 订阅服务名（订阅制模式下"服务商"指订阅服务本身，不是模型厂商）
       function subscriptionServiceName(provider) {
         if (provider === 'chatgpt') return 'ChatGPT';
-        if (provider === 'codex') return 'Codex';
+        if (provider === 'codex' || provider === 'openai-codex') return 'Codex';
         if (provider === 'opencode-go' || provider === 'opencode') return 'OpenCode Go';
         return '订阅';
       }
