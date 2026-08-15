@@ -5,6 +5,9 @@
 //  - styles.insert(css) → document 注入 <style>（installStyles）
 //  - React 由 bundle 的 require('react') 提供（seed 模块）
 // v24 样式策略：① 只把数字加粗（.bi-num 700）② 服务商名加粗 ③ 高峰价琥珀色+加粗、空闲价绿色+加粗
+// v25 显示逻辑修复：① 本对话花费不再要求 currentSession.tokens > 0 才显示——
+//    新会话/对话刚开始（尚无记账）时始终显示"本对话 ¥0.000"，hover 仍可查看持久化的 今天/近一月/全部；
+//    ② 原生统计行移除 steps > 0 门槛：完整模式下对话刚开始即显示"0 轮 · 0 步"。
 'use strict';
 
 const React = require('react');
@@ -265,12 +268,15 @@ module.exports = {
         }
 
         // 6) 本对话花费（只显示钱；hover 浮窗显示 今天 / 近一月 / 全部；金额数字加粗）
+        // 始终显示：新会话/对话刚开始尚无记账时显示 ¥0.000，hover 仍可查看持久化的 今天/近一月/全部
         const usg = state.usage;
-        if (usg && usg.currentSession && usg.currentSession.tokens > 0) {
+        if (usg) {
           const cs = usg.currentSession;
-          const costCNY = cs.costs && cs.costs.CNY != null ? cs.costs.CNY : null;
-          const costUSD = cs.costs && cs.costs.USD != null ? cs.costs.USD : null;
-          const costTxt = costCNY != null ? '¥' + costCNY.toFixed(3) : (costUSD != null ? '$' + costUSD.toFixed(3) : '—');
+          const costCNY = cs && cs.costs && cs.costs.CNY != null ? cs.costs.CNY : null;
+          const costUSD = cs && cs.costs && cs.costs.USD != null ? cs.costs.USD : null;
+          const zeroTxt = (bal && bal.currency === 'USD' ? '$' : '¥') + (0).toFixed(3);
+          const costTxt = costCNY != null ? '¥' + costCNY.toFixed(3)
+            : (costUSD != null ? '$' + costUSD.toFixed(3) : zeroTxt);
           const symbol = bal && bal.currency === 'USD' ? '$' : '¥';
           const today = usg.todaySpend != null ? '今天 ' + symbol + fmt(usg.todaySpend, 3) : '';
           const month = usg.monthSpend != null ? '近一月 ' + symbol + fmt(usg.monthSpend, 3) : '';
@@ -292,7 +298,7 @@ module.exports = {
       const row2 = React.createElement('div', { className: 'bi-row2' }, ...nodes);
 
       let row1 = null;
-      if (full && statsProj && statsProj.steps > 0) {
+      if (full && statsProj) {
         // 每组：{ nodes: React 节点数组（数字用 num 加粗）, text: 纯文本（title 用） }
         const ng = [];
         function group(parts) {
