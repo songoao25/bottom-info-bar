@@ -4,7 +4,7 @@
 // 依赖：inject ['credentials', 'shell', 'timer']；可选服务 webServer（ctx.inject 等待）
 // 记账持久化：usageRecords 落盘 ~/.dsh/bottom-info-bar/usage-records.json（可用环境变量
 // BOTTOM_INFO_BAR_DATA_DIR 覆盖目录），重启后真实累计花费不丢失。
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -339,7 +339,10 @@ export default {
       if (saveDisposer) { saveDisposer(); saveDisposer = null; }
       try {
         mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
-        writeFileSync(DATA_FILE, JSON.stringify(usageRecords), { mode: 0o600 });
+        // 原子写：先写临时文件再 rename，避免进程崩溃/写一半留下损坏 JSON 导致历史归零
+        const tmp = DATA_FILE + '.tmp';
+        writeFileSync(tmp, JSON.stringify(usageRecords), { mode: 0o600 });
+        renameSync(tmp, DATA_FILE);
         dirty = false; // 写盘成功后才清除脏标记：失败时保留，卸载冲刷可重试
       } catch (err) { /* 落盘失败不影响主流程；保留 dirty，下次记账/卸载时重试 */ console.warn('[bottom-info-bar] 记账落盘失败', String((err && err.message) || err)); }
     }

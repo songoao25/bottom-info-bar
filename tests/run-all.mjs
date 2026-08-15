@@ -4,12 +4,21 @@
 //  - 静态 host 冒烟测试（webServer 路由 / RPC 分发 / 记账 / 同源防护）：tests/smoke-static-host.mjs
 //  - 业务逻辑回归（峰谷边界 / 显示名识别 / 密度审计 / 花费聚合），指向正式源码：
 //    plugin/src/host.js + plugin/src/client-bundle.js
+// 注意：先执行 build（smoke 测试 import 的是 lib/ 产物，必须先重建避免测到陈旧代码）
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const HOST = join(root, 'plugin', 'src', 'host.js')
+
+// 0) 重建 lib/（smoke 依赖构建产物）
+const build = spawnSync(process.execPath, ['scripts/build.mjs'], { cwd: join(root, 'plugin'), encoding: 'utf8' })
+if (build.status !== 0) {
+  console.error('build 失败：' + (build.stderr || build.stdout))
+  process.exit(1)
+}
+console.log('build OK → lib/')
 
 const cases = [
   ['smoke-static-host', ['tests/smoke-static-host.mjs'], join(root)],
