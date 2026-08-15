@@ -470,7 +470,7 @@ async function boot(opts) {
   ok('安全：无 console 调用直接传 token 变量', !/console\.\w+\([^)]*\btoken\b/.test(hostSrc), 'console 传 token 变量');
   ok('安全：无 console 模板插值（${}）', !/console\.\w+\([^)]*\$\{/.test(hostSrc), 'console 插值');
   ok('安全：无个人路径（songsong）', !hostSrc.includes('songsong'), '含个人路径');
-  ok('安全：续期走 HTTPS fetch 而非 shell 注入', hostSrc.includes("fetch('https://auth.openai.com/oauth/token'") && !hostSrc.includes('shell.run'), '续期通道异常');
+  ok('安全：令牌交换走 HTTPS fetch；shell 仅用于开浏览器（命令不含令牌）', hostSrc.includes("fetch('https://auth.openai.com/oauth/token'") && !/\bshell\.run\([^)]*\btoken\b/.test(hostSrc), '令牌经 shell 传递');
   ok('安全：inject 含 settings（路由注册依赖）', hostSrc.includes("inject: ['credentials', 'shell', 'timer', 'settings']"), 'inject 缺 settings');
   ok('安全：RPC 含 getCodexBridgeStatus（只读）', hostSrc.includes('getCodexBridgeStatus: function') && hostSrc.includes('getCodexBridgeStatus: true') === false, 'RPC 缺失或误入 MUTATING');
   ok('隔离：auth 路径指向临时目录（绝不读真实 ~/.codex/auth.json）', AUTH_PATH() === path.join(tmpRoot, 'auth.json') && AUTH_PATH() !== path.join(os.homedir(), '.codex', 'auth.json'), AUTH_PATH());

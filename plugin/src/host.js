@@ -7,6 +7,8 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { createHash, randomBytes } from 'node:crypto'
+import { createServer } from 'node:http'
 
 const DATA_DIR = process.env.BOTTOM_INFO_BAR_DATA_DIR || join(homedir(), '.dsh', 'bottom-info-bar')
 const DATA_FILE = join(DATA_DIR, 'usage-records.json')
@@ -27,6 +29,16 @@ const SUBSCRIPTION_RETRY_BACKOFF_MS = 60000 // 订阅刷新失败后退避期：
 // 订阅源 auth 文件路径（可用环境变量覆盖——测试隔离用，避免测试误读真实登录态）
 const CODEX_AUTH_FILE = process.env.BOTTOM_INFO_BAR_CODEX_AUTH || join(homedir(), '.codex', 'auth.json')
 const OPENCODE_AUTH_FILE = process.env.BOTTOM_INFO_BAR_OPENCODE_AUTH || join(homedir(), '.local', 'share', 'opencode', 'auth.json')
+
+// ---------- ChatGPT 订阅官方 OAuth 绑定（v1.2.0）：PKCE S256 + state + 本地回调（仅 127.0.0.1） ----------
+// 回调端口：生产必须为 1455——redirect_uri 与 OpenAI 注册值固定一致；BOTTOM_INFO_BAR_OAUTH_PORT 仅测试隔离
+// 用（临时端口，绝不监听真实 1455 / 绝不触碰真实 auth.json）。回调等待超时生产 5 分钟，
+// BOTTOM_INFO_BAR_OAUTH_TIMEOUT_MS 仅供测试缩短。
+const OAUTH_CALLBACK_TIMEOUT_MS = Number(process.env.BOTTOM_INFO_BAR_OAUTH_TIMEOUT_MS) > 0 ? Number(process.env.BOTTOM_INFO_BAR_OAUTH_TIMEOUT_MS) : 5 * 60 * 1000
+const OAUTH_CALLBACK_PATH = '/auth/callback'
+const OAUTH_SCOPE = 'openid profile email offline_access'
+// 从 access_token JWT payload 提取 account_id 的 claim 路径（pi-ai 同款；wham 额度接口需要 account_id）
+const CODEX_JWT_ACCOUNT_CLAIM = 'https://api.openai.com/auth'
 
 // ---------- 双模式纯逻辑（模式检测 / 窗口映射 / 响应解析；单测直接提取） ----------
 
@@ -275,6 +287,212 @@ async function refreshCodexTokenPair(refreshToken) {
   }
 }
 
+// ---------- ChatGPT 订阅官方 OAuth 绑定（v1.2.0）纯逻辑：PKCE / 授权 URL / 回调解析 / 令牌交换 / 写回 ----------
+// 安全铁律：verifier/state/令牌仅内存（verifier 用完即弃）；不打印、不进日志、不进仓库；唯一落盘 =
+// ~/.codex/auth.json（0600）与 DSH 凭据库（0600）；回调 server 仅 127.0.0.1 + state 校验防 CSRF。
+
+// OAuth 回调端口：生产必须为 1455（redirect_uri 与 OpenAI 注册值固定一致）；BOTTOM_INFO_BAR_OAUTH_PORT 仅测试隔离用
+function oauthCallbackPort() {
+  const v = Number(process.env.BOTTOM_INFO_BAR_OAUTH_PORT)
+  return Number.isInteger(v) && v > 0 && v < 65536 ? v : 1455
+}
+
+// PKCE 对：verifier = 32 字节 base64url；challenge = 对 verifier 做 sha256 哈希后再 base64url 编码（S256）
+function createPkcePair() {
+  const verifier = randomBytes(32).toString('base64url')
+  const challenge = createHash('sha256').update(verifier).digest('base64url')
+  return { verifier: verifier, challenge: challenge }
+}
+
+// 构造授权跳转 URL（auth.openai.com/oauth/authorize；参数与 pi-ai/Codex CLI 一致；不含任何机密）
+function buildAuthorizeUrl(state, codeChallenge) {
+  const url = new URL('https://auth.openai.com/oauth/authorize')
+  url.searchParams.set('client_id', CODEX_OAUTH_CLIENT_ID)
+  url.searchParams.set('response_type', 'code')
+  url.searchParams.set('redirect_uri', 'http://localhost:' + oauthCallbackPort() + OAUTH_CALLBACK_PATH)
+  url.searchParams.set('code_challenge', codeChallenge)
+  url.searchParams.set('code_challenge_method', 'S256')
+  url.searchParams.set('state', state)
+  url.searchParams.set('scope', OAUTH_SCOPE)
+  return url.toString()
+}
+
+// 解析回调（完整 URL 的 query/hash、查询串、手贴 'code#state'、裸 code）；缺参返回 null 字段
+function parseCallbackUrl(url) {
+  if (typeof url !== 'string' || url.length === 0) return { code: null, state: null }
+  const raw = url.trim()
+  // ① 完整 URL：query 参数优先，hash 参数兜底（兼容 OAuth hash 响应）
+  try {
+    const u = new URL(raw)
+    let code = u.searchParams.get('code')
+    let state = u.searchParams.get('state')
+    if (u.hash && u.hash.length > 1) {
+      const hp = new URLSearchParams(u.hash.slice(1))
+      if (code == null) code = hp.get('code')
+      if (state == null) state = hp.get('state')
+    }
+    return { code: code, state: state }
+  } catch (err) { /* 非完整 URL → ②/③/④ */ }
+  // ② 手贴格式 'code#state'
+  if (raw.indexOf('#') >= 0 && raw.indexOf('://') < 0) {
+    const parts = raw.split('#')
+    const first = parts[0]
+    if (first && first.indexOf('=') < 0) {
+      const rest = parts.slice(1).join('#')
+      const sp = new URLSearchParams(rest)
+      return { code: first, state: sp.get('state') != null ? sp.get('state') : rest }
+    }
+  }
+  // ③ 查询串 'code=..&state=..'
+  const q = raw.indexOf('?') >= 0 ? raw.slice(raw.indexOf('?') + 1) : raw
+  const sp2 = new URLSearchParams(q)
+  if (sp2.has('code') || sp2.has('state')) return { code: sp2.get('code'), state: sp2.get('state') }
+  // ④ 裸 code（手动粘贴单值）
+  if (raw.length > 0 && raw.indexOf('=') < 0 && raw.indexOf('#') < 0) return { code: raw, state: null }
+  return { code: null, state: null }
+}
+
+// 从 access_token JWT payload 提取 chatgpt_account_id（wham 额度接口所需）；失败 → null
+function codexAccountIdFromJwt(token) {
+  if (typeof token !== 'string' || token.length === 0) return null
+  const parts = token.split('.')
+  if (parts.length !== 3) return null
+  const raw = decodeBase64Url(parts[1])
+  if (raw == null) return null
+  let payload = null
+  try { payload = JSON.parse(raw) } catch (err) { return null }
+  const auth = payload && payload[CODEX_JWT_ACCOUNT_CLAIM]
+  const id = auth && auth.chatgpt_account_id
+  return typeof id === 'string' && id.length > 0 ? id : null
+}
+
+// 构造 OAuth 绑定后的 auth.json 对象：保留既有结构（codex CLI/OpenCode 兼容），仅替换令牌字段 + last_refresh；
+// account_id 优先从新 access_token 提取，提取失败保留旧值；全新文件给出标准骨架 {auth_mode:'oauth', ...}
+function buildOAuthAuthObject(existing, exchange, nowIso) {
+  const base = existing && typeof existing === 'object' && !Array.isArray(existing) ? existing : {}
+  const baseTokens = base.tokens && typeof base.tokens === 'object' && !Array.isArray(base.tokens) ? base.tokens : {}
+  const tokens = Object.assign({}, baseTokens)
+  tokens.access_token = exchange.access_token
+  if (typeof exchange.refresh_token === 'string' && exchange.refresh_token.length > 0) tokens.refresh_token = exchange.refresh_token
+  if (typeof exchange.id_token === 'string' && exchange.id_token.length > 0) tokens.id_token = exchange.id_token
+  const accountId = codexAccountIdFromJwt(exchange.access_token)
+  if (accountId) tokens.account_id = accountId
+  return {
+    auth_mode: 'oauth',
+    OPENAI_API_KEY: typeof base.OPENAI_API_KEY === 'string' && base.OPENAI_API_KEY.length > 0 ? base.OPENAI_API_KEY : null,
+    tokens: tokens,
+    last_refresh: nowIso,
+  }
+}
+
+// 解绑：仅清令牌字段并原子写回（保留 auth_mode/OPENAI_API_KEY/account_id 等结构——auth.json 是 codex CLI
+// 等工具共用的标准位置，保留骨架更接近"已登出"语义，也便于重新绑定与 CLI 兼容）；tmp+rename 防写一半；0600
+function clearCodexAuthTokens(filePath, currentAuth) {
+  const base = currentAuth && typeof currentAuth === 'object' && !Array.isArray(currentAuth) ? currentAuth : {}
+  const tokens = Object.assign({}, base.tokens && typeof base.tokens === 'object' && !Array.isArray(base.tokens) ? base.tokens : {})
+  delete tokens.access_token
+  delete tokens.refresh_token
+  delete tokens.id_token
+  const updated = Object.assign({}, base, { tokens: tokens, last_refresh: null })
+  const tmp = filePath + '.tmp'
+  writeFileSync(tmp, JSON.stringify(updated, null, 2) + '\n', { mode: 0o600 })
+  renameSync(tmp, filePath)
+  return updated
+}
+
+// 用授权码向官方端点换令牌对（PKCE verifier 证明持码者身份）；凭据仅经 HTTPS body 传递（不进子进程）；
+// 响应缺 access_token → { ok:false }（调用方不得写回）；网络/超时异常 → { ok:false, status:null }
+async function exchangeAuthorizationCode(code, verifier) {
+  try {
+    const res = await fetch('https://auth.openai.com/oauth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        client_id: CODEX_OAUTH_CLIENT_ID,
+        code: code,
+        code_verifier: verifier,
+        redirect_uri: 'http://localhost:' + oauthCallbackPort() + OAUTH_CALLBACK_PATH,
+      }).toString(),
+      signal: AbortSignal.timeout(15000),
+    })
+    if (!res.ok) return { ok: false, status: res.status }
+    const body = await res.json()
+    if (!body || typeof body.access_token !== 'string' || body.access_token.length === 0) return { ok: false, status: res.status }
+    return {
+      ok: true,
+      access_token: body.access_token,
+      refresh_token: typeof body.refresh_token === 'string' && body.refresh_token.length > 0 ? body.refresh_token : null,
+      id_token: typeof body.id_token === 'string' && body.id_token.length > 0 ? body.id_token : null,
+    }
+  } catch (err) {
+    return { ok: false, status: null } // 网络/超时等异常 → 调用方按"交换失败"处理
+  }
+}
+
+// 本地回调 server：仅监听 127.0.0.1；仅接受 /auth/callback；校验 state（防 CSRF/中间人）；
+// 端口占用（EADDRINUSE）等监听失败 → resolve(null)（调用方返回明确错误，不崩溃）
+function startOAuthCallbackServer(expectedState, onCode, port) {
+  return new Promise(function (resolve) {
+    let settled = false
+    const fail = function () { if (!settled) { settled = true; resolve(null) } }
+    const server = createServer(function (req, res) {
+      let pathname = '/'
+      let params = null
+      try {
+        const url = new URL(req.url || '/', 'http://localhost')
+        pathname = url.pathname
+        params = url.searchParams
+      } catch (err) {
+        respondOAuthPage(res, 400, 'OAuth 回调地址无效')
+        return
+      }
+      if (pathname !== OAUTH_CALLBACK_PATH) {
+        respondOAuthPage(res, 404, '回调路径不存在')
+        return
+      }
+      if (params.get('state') !== expectedState) {
+        respondOAuthPage(res, 400, 'OAuth 状态校验失败，请重试')
+        return
+      }
+      const code = params.get('code')
+      if (!code) {
+        respondOAuthPage(res, 400, '缺少授权码')
+        return
+      }
+      respondOAuthPage(res, 200, '授权完成，可关闭此页')
+      onCode(code)
+    })
+    server.on('error', fail)
+    server.listen(port, '127.0.0.1', function () {
+      if (!settled) {
+        settled = true
+        resolve({
+          server: server,
+          port: port,
+          close: function () { try { server.close() } catch (err) { /* 忽略 */ } },
+        })
+      }
+    })
+  })
+}
+
+// 回调页响应（纯静态 HTML，无用户输入拼接风险；message 均为本模块常量）
+function respondOAuthPage(res, status, message) {
+  const safe = String(message).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  })
+  const html = '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>ChatGPT 授权</title></head>' +
+    '<body style="font-family:system-ui,sans-serif;padding:3rem 2rem;text-align:center;background:#f7f7f8">' +
+    '<h2 style="color:#0d0d0d">' + safe + '</h2>' +
+    '<p style="color:#555">你可以关闭此页面，返回 DSH 继续。</p>' +
+    '</body></html>'
+  res.statusCode = status
+  res.setHeader('Content-Type', 'text/html; charset=utf-8')
+  res.setHeader('Cache-Control', 'no-store')
+  res.end(html)
+}
+
 function loadUsageRecords() {
   try {
     if (!existsSync(DATA_FILE)) return []
@@ -455,14 +673,14 @@ export default {
       try {
         auth = JSON.parse(readFileSync(CODEX_AUTH_FILE, 'utf8'));
       } catch (err) {
-        return { error: { kind: 'no-key', message: '未找到 Codex 登录凭证（~/.codex/auth.json）' } };
+        return { error: { kind: 'no-key', message: '未找到 ChatGPT 订阅登录凭证（~/.codex/auth.json）' } };
       }
       const tokens = auth && auth.tokens;
       const access = tokens && tokens.access_token;
       const refresh = tokens && tokens.refresh_token;
       const accountId = tokens && tokens.account_id;
       if (typeof access !== 'string' || access.length === 0) {
-        return { error: { kind: 'no-key', message: 'Codex 登录凭证缺少 access_token' } };
+        return { error: { kind: 'no-key', message: 'ChatGPT 订阅登录凭证缺少 access_token' } };
       }
       let token = access;
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -1244,7 +1462,7 @@ export default {
       const read = readCodexAuthFile(CODEX_AUTH_FILE);
       if (!read.ok) {
         // 未登录态（auth.json 缺失/损坏）→ 状态标记 + 引导文案，不崩溃
-        codexBridgeState = { ok: false, lastSyncAt: nowMs, expiresAt: null, error: { kind: 'no-login', message: '未找到 Codex 登录凭证（~/.codex/auth.json），请先用 codex CLI 登录' }, routeConfigured: codexBridgeState.routeConfigured };
+        codexBridgeState = { ok: false, lastSyncAt: nowMs, expiresAt: null, error: { kind: 'no-login', message: '未找到 ChatGPT 订阅登录凭证（~/.codex/auth.json），请在 DSH 设置「ChatGPT 订阅」页授权绑定' }, routeConfigured: codexBridgeState.routeConfigured };
         return;
       }
       const auth = read.auth;
@@ -1253,7 +1471,7 @@ export default {
       const refresh = typeof tokens.refresh_token === 'string' ? tokens.refresh_token : '';
       const lastRefreshMs = Date.parse(auth.last_refresh);
       if (!access) {
-        codexBridgeState = { ok: false, lastSyncAt: nowMs, expiresAt: null, error: { kind: 'no-key', message: 'Codex 登录凭证缺少 access_token' }, routeConfigured: codexBridgeState.routeConfigured };
+        codexBridgeState = { ok: false, lastSyncAt: nowMs, expiresAt: null, error: { kind: 'no-key', message: 'ChatGPT 订阅登录凭证缺少 access_token' }, routeConfigured: codexBridgeState.routeConfigured };
         return;
       }
       let expiresAtSec = codexExpiresAt(decodeJwtExp(access), lastRefreshMs);
@@ -1262,7 +1480,7 @@ export default {
 
       if (codexNeedsRefresh(expiresAtSec, nowSec)) {
         if (!refresh) {
-          error = { kind: 'auth', message: 'Codex 令牌临近过期但缺少 refresh_token，请重新登录 codex CLI' };
+          error = { kind: 'auth', message: 'ChatGPT 订阅令牌临近过期但缺少 refresh_token，请重新授权绑定' };
         } else {
           const pair = await refreshCodexTokenPair(refresh);
           if (pair) {
@@ -1289,7 +1507,7 @@ export default {
               token = reAccess;
               expiresAtSec = codexExpiresAt(decodeJwtExp(reAccess), reRefreshMs);
             } else {
-              error = { kind: 'auth', message: 'Codex 令牌续期失败（refresh_token 可能失效），请重新登录 codex CLI' };
+              error = { kind: 'auth', message: 'ChatGPT 订阅令牌续期失败（refresh_token 可能失效），请重新授权绑定' };
             }
           }
         }
@@ -1313,6 +1531,123 @@ export default {
         error: error,
         routeConfigured: codexBridgeState.routeConfigured,
       };
+    }
+
+    // ---------- ChatGPT 订阅官方 OAuth 绑定（v1.2.0）：startCodexOAuth / unbindCodex（RPC 触发，client 设置页按钮调用） ----------
+    let oauthInFlight = false; // OAuth 授权进行中（防并发：绝不同时存在两个回调 server/state）
+    let oauthLastError = null; // 最近一次 OAuth 流程错误（状态 RPC 透出；令牌值永不进入）
+
+    function deferred() {
+      let resolve = null;
+      const promise = new Promise(function (res) { resolve = res; });
+      return { promise: promise, resolve: resolve };
+    }
+
+    // 打开系统浏览器（macOS open / Windows start / Linux xdg-open；经 ctx.shell，URL 经引号包裹防注入）；
+    // 失败不致命——authorizeUrl 已随 RPC 返回，client 可 window.open 兜底
+    async function openOAuthBrowser(authorizeUrl) {
+      const shell = (ctx && ctx.shell) || ctx.get('shell');
+      if (!shell || typeof shell.run !== 'function') return false;
+      const platform = typeof process !== 'undefined' && process.platform ? process.platform : '';
+      const openCmd = platform === 'darwin' ? 'open' : platform === 'win32' ? 'cmd /c start ""' : 'xdg-open';
+      const safeUrl = String(authorizeUrl).replace(/["$`\\]/g, '\\$&');
+      const request = { command: openCmd + ' "' + safeUrl + '"' };
+      try {
+        const result = await shell.run(typeof shell.resolve === 'function' ? shell.resolve(request) : request);
+        return !result || result.exitCode === 0 || result.exitCode === undefined;
+      } catch (err) {
+        return false;
+      }
+    }
+
+    // OAuth 流程主体（startCodexOAuthRpc 启动回调 server 后后台继续；所有失败/超时只记录状态，不崩溃、不打印令牌）
+    async function runCodexOAuthFlow(pkce, state, serverHandle, authorizeUrl, waitCode) {
+      let timer = null;
+      try {
+        await openOAuthBrowser(authorizeUrl);
+        // 等待浏览器回调（超时 5 分钟；测试可经 BOTTOM_INFO_BAR_OAUTH_TIMEOUT_MS 缩短）
+        const code = await Promise.race([
+          waitCode.promise,
+          new Promise(function (resolve) { timer = setTimeout(function () { resolve(null); }, OAUTH_CALLBACK_TIMEOUT_MS); }),
+        ]);
+        if (!code) { oauthLastError = { kind: 'timeout', message: 'OAuth 授权超时（5 分钟），请重试' }; return; }
+        // 换令牌（PKCE verifier 仅内存，用完即弃）
+        const exchanged = await exchangeAuthorizationCode(code, pkce.verifier);
+        if (!exchanged.ok) {
+          oauthLastError = { kind: 'exchange', message: 'OAuth 令牌交换失败（' + (exchanged.status != null ? 'HTTP ' + exchanged.status : '网络错误') + '），请重试' };
+          return;
+        }
+        // 构造 auth.json（保留既有结构；account_id 从 JWT 提取）→ 原子写 0600
+        const nowIso = new Date().toISOString();
+        const read = readCodexAuthFile(CODEX_AUTH_FILE);
+        const authToWrite = buildOAuthAuthObject(read.ok ? read.auth : null, exchanged, nowIso);
+        try {
+          writeAuthJson(CODEX_AUTH_FILE, authToWrite, exchanged.access_token, authToWrite.tokens.refresh_token != null ? authToWrite.tokens.refresh_token : null, nowIso);
+        } catch (err) {
+          oauthLastError = { kind: 'write', message: 'OAuth 绑定成功但写入 auth.json 失败' };
+          return;
+        }
+        // 注入 DSH 凭据（写入即下次生效，无需重启）
+        try {
+          await ctx.credentials.set('OPENAI_CODEX_API_KEY', exchanged.access_token);
+          codexInjectedToken = exchanged.access_token;
+        } catch (err) {
+          oauthLastError = { kind: 'credentials', message: 'OAuth 绑定成功但凭据注入失败' };
+        }
+        const expiresAtSec = codexExpiresAt(decodeJwtExp(exchanged.access_token), Date.parse(nowIso));
+        codexBridgeState = {
+          ok: true,
+          lastSyncAt: Date.now(),
+          expiresAt: expiresAtSec != null ? expiresAtSec * 1000 : null,
+          error: null,
+          routeConfigured: codexBridgeState.routeConfigured,
+        };
+      } catch (err) {
+        oauthLastError = { kind: 'exception', message: 'OAuth 绑定异常：' + String((err && err.message) || err) };
+      } finally {
+        if (timer) clearTimeout(timer);
+        try { serverHandle.close(); } catch (err) { /* 忽略 */ }
+        oauthInFlight = false;
+      }
+    }
+
+    // RPC：启动官方 OAuth 授权（PKCE + state + 本地回调；并发保护；端口占用同步返回错误，不进入后台流程）
+    async function startCodexOAuthRpc() {
+      if (oauthInFlight) return { ok: false, oauthInFlight: true, error: { kind: 'in-flight', message: 'OAuth 授权进行中，请稍候' } };
+      oauthInFlight = true;
+      oauthLastError = null;
+      const pkce = createPkcePair();
+      const state = randomBytes(16).toString('hex');
+      const port = oauthCallbackPort();
+      const waitCode = deferred();
+      const serverHandle = await startOAuthCallbackServer(state, function (code) { waitCode.resolve(code); }, port);
+      if (!serverHandle) {
+        oauthInFlight = false;
+        return { ok: false, oauthInFlight: false, error: { kind: 'port-busy', message: 'OAuth 回调端口 ' + port + ' 被占用，请关闭占用该端口的程序（如正在运行的 codex CLI 登录）后重试' } };
+      }
+      const authorizeUrl = buildAuthorizeUrl(state, pkce.challenge);
+      // 后台继续，不阻塞 RPC（流程内部 try/catch/finally 全覆盖；此处 catch 兜底防意外拒绝）
+      runCodexOAuthFlow(pkce, state, serverHandle, authorizeUrl, waitCode).catch(function (err) {
+        oauthLastError = { kind: 'exception', message: 'OAuth 绑定异常：' + String((err && err.message) || err) };
+      });
+      return { ok: true, authorizeUrl: authorizeUrl, oauthInFlight: true };
+    }
+
+    // RPC：解绑（清 auth.json 令牌字段保留结构 + credentials.unset + 状态=未绑定）
+    async function unbindCodexRpc() {
+      if (oauthInFlight) return { ok: false, error: { kind: 'in-flight', message: 'OAuth 授权进行中，请先完成或等待超时' } };
+      try {
+        const read = readCodexAuthFile(CODEX_AUTH_FILE);
+        if (read.ok) clearCodexAuthTokens(CODEX_AUTH_FILE, read.auth);
+        try {
+          await ctx.credentials.unset('OPENAI_CODEX_API_KEY');
+        } catch (err) { /* 凭据库未配置该键时 unset 无害 */ }
+        codexInjectedToken = null;
+        codexBridgeState = { ok: false, lastSyncAt: Date.now(), expiresAt: null, error: { kind: 'unbound', message: '已解绑 ChatGPT 订阅' }, routeConfigured: codexBridgeState.routeConfigured };
+        return { ok: true, bound: false };
+      } catch (err) {
+        return { ok: false, error: { kind: 'exception', message: '解绑失败：' + String((err && err.message) || err) } };
+      }
     }
 
     // ---------- RPC 路由（webServer HTTP，替代动态沙箱 harness.handle） ----------
@@ -1365,7 +1700,27 @@ export default {
         return getSubscriptionSnapshotRpc();
       },
       getCodexBridgeStatus: function () {
-        return { ...codexBridgeState }; // 只读：令牌值绝不进状态，可安全经 RPC 暴露
+        // 只读状态：bound 以 auth.json 实际令牌为准（文件=唯一事实源）；令牌值绝不进状态/响应
+        const read = readCodexAuthFile(CODEX_AUTH_FILE);
+        const tokens = read.ok && read.auth.tokens && typeof read.auth.tokens === 'object' ? read.auth.tokens : {};
+        const bound = typeof tokens.access_token === 'string' && tokens.access_token.length > 0;
+        const plan = subscriptions.codex && subscriptions.codex.data ? subscriptions.codex.data.plan : null;
+        return {
+          ok: codexBridgeState.ok,
+          bound: bound,
+          plan: plan,
+          expiresAt: codexBridgeState.expiresAt,
+          lastSyncAt: codexBridgeState.lastSyncAt,
+          oauthInFlight: oauthInFlight,
+          error: oauthLastError || codexBridgeState.error,
+          routeConfigured: codexBridgeState.routeConfigured,
+        };
+      },
+      startCodexOAuth: function () {
+        return startCodexOAuthRpc();
+      },
+      unbindCodex: function () {
+        return unbindCodexRpc();
       },
       setDisplayMode: function (args) {
         const mode = args && typeof args === 'object' ? args.mode : null;
@@ -1378,7 +1733,7 @@ export default {
         return { infoDensity: config.infoDensity };
       },
     };
-    const MUTATING = { setActiveProvider: true, setDisplayMode: true, setInfoDensity: true, getSubscriptionSnapshot: true };
+    const MUTATING = { setActiveProvider: true, setDisplayMode: true, setInfoDensity: true, getSubscriptionSnapshot: true, startCodexOAuth: true, unbindCodex: true };
 
     function sameOrigin(req) {
       const fetchSite = req.headers['sec-fetch-site'];

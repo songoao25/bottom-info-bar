@@ -28,6 +28,7 @@ const cases = [
   ['test-spend-accounting（host.js）', ['tests/test-spend-accounting.js'], join(root), process.execPath],
   ['test-dual-mode（host.js 双模式逻辑 + client 订阅渲染）', ['tests/test-dual-mode.js'], join(root), process.execPath],
   ['test-codex-bridge（host.js Codex 桥接 + 注入式集成）', ['tests/test-codex-bridge.js'], join(root), process.execPath],
+  ['test-codex-oauth（host.js ChatGPT 订阅官方 OAuth 绑定）', ['tests/test-codex-oauth.js'], join(root), process.execPath],
   ['test-uninstall-purge（uninstall.sh --purge-codex 清理逻辑）', ['tests/test-uninstall-purge.sh'], join(root), 'bash'],
   ['check-host（host.js）', ['tests/check-host.js', HOST], join(root), process.execPath],
 ]
