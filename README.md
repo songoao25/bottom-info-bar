@@ -79,7 +79,6 @@ cd bottom-info-bar
 - 源码：`plugin/src/host.js`（host）+ `plugin/src/client-bundle.js`（client）
 - 构建：`cd plugin && npm run build`（生成 `lib/`）
 - 测试：`node tests/run-all.mjs`
-- 历史版本与开发记录归档在 `archive/`、`docs/dev/`（仅供考古，非分发内容）
 
 ## 许可证
 

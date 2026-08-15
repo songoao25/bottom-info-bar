@@ -2,22 +2,22 @@
 // 用法：node tests/run-all.mjs（或 plugin 目录下 npm test）
 // 覆盖：
 //  - 静态 host 冒烟测试（webServer 路由 / RPC 分发 / 记账 / 同源防护）：tests/smoke-static-host.mjs
-//  - 业务逻辑回归（峰谷边界 / 显示名识别 / 密度审计 / 花费聚合），指向最终版归档源码：
-//    archive/src/host-v10.js + archive/src/client-v24.js（与 plugin/src 同一业务逻辑）
+//  - 业务逻辑回归（峰谷边界 / 显示名识别 / 密度审计 / 花费聚合），指向正式源码：
+//    plugin/src/host.js + plugin/src/client-bundle.js
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
-const HOST = join(root, 'archive', 'src', 'host-v10.js')
+const HOST = join(root, 'plugin', 'src', 'host.js')
 
 const cases = [
   ['smoke-static-host', ['tests/smoke-static-host.mjs'], join(root)],
   ['test-static-client（plugin/src/client-bundle.js）', ['tests/test-static-client.js'], join(root)],
-  ['test-host-v7（host-v10）', ['tests/test-host-v7.js'], join(root)],
-  ['test-density-v20（host-v10 + client-v24）', ['tests/test-density-v20.js'], join(root)],
-  ['test-spend-v10（host-v10）', ['tests/test-spend-v10.js'], join(root)],
-  ['check-host（host-v10）', ['tests/check-host.js', HOST], join(root)],
+  ['test-host-v7（host.js）', ['tests/test-host-v7.js'], join(root)],
+  ['test-density-v20（host.js + client-bundle.js）', ['tests/test-density-v20.js'], join(root)],
+  ['test-spend-v10（host.js）', ['tests/test-spend-v10.js'], join(root)],
+  ['check-host（host.js）', ['tests/check-host.js', HOST], join(root)],
 ]
 
 let failed = 0

@@ -1,7 +1,7 @@
-// host-v7 新增功能自测：服务商/模型显示名自动识别（兼容任意服务商）
-// 用法：node src/test-host-v7.js
+// 服务商/模型显示名自动识别回归（兼容任意服务商），提取 plugin/src/host.js 中的逻辑验证
+// 用法：node tests/test-host-v7.js
 const fs = require('fs');
-const src = fs.readFileSync(__dirname + '/../archive/src/host-v10.js', 'utf8');
+const src = fs.readFileSync(__dirname + '/../plugin/src/host.js', 'utf8');
 
 // 提取 PROVIDER_DISPLAY / MODEL_VENDOR_PREFIXES 与两个函数，在桩环境执行
 function extractConst(name) {

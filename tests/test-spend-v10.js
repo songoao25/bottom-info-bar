@@ -1,7 +1,7 @@
-// host-v10 记账真实性审计：验证"本对话/今天/近一月/全部"按真实 usage 逐请求记账、按会话区分
-// 用法：node src/test-spend-v10.js
+// host 记账真实性审计：验证"本对话/今天/近一月/全部"按真实 usage 逐请求记账、按会话区分
+// 用法：node tests/test-spend-v10.js
 const fs = require('fs');
-const src = fs.readFileSync(__dirname + '/../archive/src/host-v10.js', 'utf8');
+const src = fs.readFileSync(__dirname + '/../plugin/src/host.js', 'utf8');
 
 // 提取记账相关纯函数，在桩环境验证（不执行 apply）
 function extractFn(name) {
@@ -28,7 +28,7 @@ function extractFn(name) {
   return eval('(' + body + ')');
 }
 
-// 关键：成本计算依赖 PRICING/currentPeriod，需要一起提取
+// 关键：成本计算依赖 PRICING，从正式源码提取定价表
 const PRICING = eval('(' + src.match(/const PRICING = ([\s\S]*?);\n    function modelCurrency/)[1] + ')');
 
 let pass = 0, fail = 0;
@@ -38,7 +38,7 @@ function check(label, actual, expected) {
   else { fail++; console.log('FAIL  ' + label + ' → 期望 ' + JSON.stringify(expected) + '，实际 ' + JSON.stringify(actual)); }
 }
 
-// ---- 手动复刻记账核心逻辑（与 host-v10 逐行一致）验证正确性 ----
+// ---- 手动复刻记账核心逻辑（与 host.js 逐行一致）验证正确性 ----
 function beijingDayKey(ts) {
   const d = new Date(ts + 8 * 3600 * 1000);
   return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');

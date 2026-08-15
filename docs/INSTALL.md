@@ -79,7 +79,3 @@ dsh plugin --profile web remove bottom-info-bar
 | 安装报 `bottom-info-bar` 找不到 | 检查插件路径正确（`install.sh` 位于仓库根，内部自动指向 `plugin/` 子目录） |
 | 余额显示未配置/刷新失败 | 见 README「常见问题」 |
 | 想彻底回到原生状态 | 卸载 + 重启，系统统计栏自动恢复 |
-
-## 手动安装动态形态（不推荐，仅旧版 DSH 无 bundle 机制时）
-
-动态插件形态的最终版源码在 `archive/src/host-v10.js` + `archive/src/client-v24.js`，可在创造模式会话中 `cordis_define`（idPrefix `bib`，kind new）+ `cordis_run` 临时加载。该形态**重启后丢失**，仅用于开发调试，不满足持久化需求。

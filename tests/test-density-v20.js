@@ -3,7 +3,7 @@
 const fs = require('fs');
 
 // ---- host 侧审计：setInfoDensity 严格校验 + getConfig 返回 ----
-const hostSrc = fs.readFileSync(__dirname + '/../archive/src/host-v10.js', 'utf8');
+const hostSrc = fs.readFileSync(__dirname + '/../plugin/src/host.js', 'utf8');
 // 提取 setInfoDensity handler 逻辑做桩验证
 function hostSetInfoDensity(value) {
   let infoDensity = 'full';
@@ -14,7 +14,7 @@ function hostSetInfoDensity(value) {
 
 // ---- client 侧审计：onToggleDensity 两态 + toggling 防抖 ----
 // 从源码提取关键逻辑做桩验证
-const clientSrc = fs.readFileSync(__dirname + '/../archive/src/client-v24.js', 'utf8');
+const clientSrc = fs.readFileSync(__dirname + '/../plugin/src/client-bundle.js', 'utf8');
 
 let pass = 0, fail = 0;
 function check(label, actual, expected) {
