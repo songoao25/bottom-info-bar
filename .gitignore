@@ -1,0 +1,15 @@
+# 依赖与构建产物
+node_modules/
+pnpm-lock.yaml
+
+# 系统与编辑器
+.DS_Store
+*.log
+*.tmp
+
+# 密钥与敏感文件（永远不得入库）
+*.pem
+*.key
+.env
+.env.*
+credentials.yaml
