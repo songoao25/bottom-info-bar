@@ -137,11 +137,28 @@ module.exports = {
       });
       const [now, setNow] = React.useState(Date.now());
 
-      const load = React.useCallback(function (sessionId) {
+      // 当前会话 ID 多路获取：slotProps 标准 kit → session 快照 → 运行时 sessions 服务
+      // （DSH 各版本注入方式不同，任一路可用即拿到真实会话 ID，避免回退到上一会话的账）
+      const propsRef = React.useRef(props);
+      propsRef.current = props;
+      const resolveSessionId = React.useCallback(function () {
+        const p = propsRef.current;
+        try {
+          if (p.sessionId) return p.sessionId;
+          if (p.session && p.session.sessionId) return p.session.sessionId;
+          const sessions = ctx.get ? ctx.get('sessions') : null;
+          const cur = sessions && sessions.list && sessions.list.getSnapshot().current;
+          if (cur) return cur;
+        } catch (e) { /* 拿不到则返回空串，host 端对空串返回 null（显示 ¥0.000） */ }
+        return '';
+      }, []);
+
+      const load = React.useCallback(function () {
+        const sessionId = resolveSessionId();
         Promise.all([
           rpc('getBalanceSnapshot'),
           rpc('getPricing'),
-          rpc('getUsageSummary', { sessionId: sessionId || '' }),
+          rpc('getUsageSummary', { sessionId: sessionId }),
         ]).then(function (results) {
           setState({ loading: false, balance: results[0], pricing: results[1], usage: results[2], fatal: null });
         }).catch(function (err) {
@@ -149,16 +166,26 @@ module.exports = {
             return { loading: false, balance: s.balance, pricing: s.pricing, usage: s.usage, fatal: String((err && err.message) || err) };
           });
         });
-      }, []);
+      }, [resolveSessionId]);
 
       React.useEffect(function () {
-        let sessionId = '';
-        try { sessionId = props.sessionId || ''; } catch (e) {}
-        load(sessionId);
-        const id = window.setInterval(function () { load(sessionId); }, 30000);
+        load();
+        const id = window.setInterval(load, 30000);
         return function () { window.clearInterval(id); };
+      }, [load]);
+
+      // 会话统计变化（回复中 turns/steps/tokens 增长，回复完成时停止）→ 防抖后即时刷新花费，
+      // 不等下一个 30s 轮询：用户回复一结束即可看到真实金额
+      React.useEffect(function () {
+        if (!statsProj) return undefined;
+        const timer = window.setTimeout(load, 800);
+        return function () { window.clearTimeout(timer); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, [load, props.sessionId]);
+      }, [load,
+        statsProj && statsProj.turns,
+        statsProj && statsProj.steps,
+        statsProj && statsProj.decodeTokens,
+      ]);
 
       React.useEffect(function () {
         const id = window.setInterval(function () { setNow(Date.now()); }, 1000);

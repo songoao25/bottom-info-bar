@@ -150,6 +150,12 @@ check('webServer 路由已注册（prefix /_dsh/bottom-info-bar）',
   const r2 = await invoke(first.captured.route, '/_dsh/bottom-info-bar/getUsageSummary', 'POST', JSON.stringify({ sessionId: 'nonexistent-session' }))
   check('新会话（sessionId 未命中）→ currentSession 为 null（不回退上一会话）', r2.payload && r2.payload.currentSession === null,
     JSON.stringify(r2.payload && r2.payload.currentSession))
+  const r3 = await invoke(first.captured.route, '/_dsh/bottom-info-bar/getUsageSummary', 'POST', JSON.stringify({ sessionId: '' }))
+  check('空 sessionId → currentSession 为 null（绝不回退最近会话显示旧账）', r3.payload && r3.payload.currentSession === null,
+    JSON.stringify(r3.payload && r3.payload.currentSession))
+  const r4 = await invoke(first.captured.route, '/_dsh/bottom-info-bar/getUsageSummary', 'POST', JSON.stringify({ sessionId: 'session-s-usage' }))
+  check('session- 前缀归一化：session-s-usage 命中 s-usage 记录', r4.payload && r4.payload.currentSession !== null && r4.payload.currentSession.output === 2000,
+    JSON.stringify(r4.payload && r4.payload.currentSession))
 }
 
 // ---------- 持久化：冲刷落盘 → 文件存在且含记录 ----------

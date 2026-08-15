@@ -52,9 +52,22 @@ dsh plugin --profile web add /path/to/bottom-info-bar/plugin
 
 - 余额需要配置 DeepSeek API Key：在 **设置 → 模型** 中填写（环境变量名 `DEEPSEEK_API_KEY`）。未配置时信息栏会给出引导文案，不影响其他功能。
 - 数据口径：高峰时段为北京时间 9:00–12:00、14:00–18:00；价格表内置 DeepSeek V4 系列与 OpenAI 示例价，未收录模型不参与花费统计。
-- 记账数据：持久化保存于 `~/.dsh/bottom-info-bar/usage-records.json`（重启不丢失；删除该文件即清空统计）。
-- 花费口径：按**当前服务商币种**聚合（DeepSeek 为 CNY，OpenAI 示例价为 USD），跨币种记录不混加；未收录模型不参与花费统计。
-- 记录上限：记账文件最多保留 3000 条（超出自动裁剪最早记录），足够覆盖数月的正常使用。
+
+### 数据存储（插件专属目录）
+
+本插件的金额数据独立保存在自己的数据目录，与其他插件 / DSH 配置互不干扰：
+
+```
+~/.dsh/bottom-info-bar/
+└── usage-records.json      # 逐请求记账明细（重启不丢失）
+```
+
+- **位置**：`~/.dsh/bottom-info-bar/`（目录权限 0700、文件权限 0600，仅当前用户可读）；
+- **覆盖**：设置环境变量 `BOTTOM_INFO_BAR_DATA_DIR` 可把整个数据目录改到别处（如移动硬盘 / 云同步目录）；
+- **内容**：每条记录为一次 `llm/stream` 请求的用量（`ts / model / provider / sessionId / input / cacheRead / cacheWrite / output`），不包含任何对话内容与 API Key；
+- **上限**：最多保留 3000 条（按写入顺序裁剪）；
+- **花费口径**：按**当前服务商币种**聚合（DeepSeek 为 CNY，OpenAI 示例价为 USD），跨币种记录不混加；未收录模型不参与花费统计；
+- **清空**：删除该文件即重置全部统计（卸载插件不会自动删除，属你的数据）。
 
 ## 卸载
 

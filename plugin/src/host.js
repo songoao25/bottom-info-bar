@@ -451,19 +451,21 @@ export default {
       };
     }
 
+    // 会话 ID 归一化：DSH 部分路径会给 sessionId 加 'session-' 前缀，去掉后统一比较
+    function normalizeSessionId(id) {
+      if (!id) return '';
+      return String(id).replace(/^session-/, '');
+    }
+
     function currentSessionSummary(sessions, sessionId) {
       if (!sessions || sessions.length === 0) return null;
+      if (!sessionId) return null; // 无可用会话 ID：不猜测归属，客户端显示 ¥0.000，而非回退最近会话
+      const norm = normalizeSessionId(sessionId);
       let target = null;
-      if (sessionId) {
-        for (let i = sessions.length - 1; i >= 0; i--) {
-          if (sessions[i].sessionId === sessionId) { target = sessions[i]; break; }
-        }
+      for (let i = sessions.length - 1; i >= 0; i--) {
+        if (normalizeSessionId(sessions[i].sessionId) === norm) { target = sessions[i]; break; }
       }
-      if (!target) {
-        // sessionId 明确传入但未命中（新对话尚无记账）→ 返回 null，客户端显示 ¥0.000，而非回退上一会话
-        if (sessionId) return null;
-        target = sessions[sessions.length - 1];
-      }
+      if (!target) return null; // 明确传入但未命中（新对话尚无记账）→ 客户端显示 ¥0.000
       const denom = target.input + target.cacheRead + target.cacheWrite;
       const tokens = target.input + target.cacheRead + target.cacheWrite + target.output;
       return {

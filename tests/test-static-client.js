@@ -32,5 +32,15 @@ check('client 源码含严格判定 === \'full\'', clientSrc.includes("props.den
 check('client 源码不含 !== \'compact\' 宽松判定', !clientSrc.includes("props.density !== 'compact'"), true);
 check('client 源码 root onClick 绑定 onToggleDensity', clientSrc.includes('onClick: function () { props.onToggleDensity(); }'), true);
 
+// 4) 当前会话 ID 多路获取（修复：新对话显示上一会话金额）
+check('client 优先读 props.sessionId', clientSrc.includes('if (p.sessionId) return p.sessionId;'), true);
+check('client 回退读 props.session.sessionId', clientSrc.includes('if (p.session && p.session.sessionId) return p.session.sessionId;'), true);
+check('client 回退读 ctx.get(sessions).current', clientSrc.includes("ctx.get ? ctx.get('sessions') : null"), true);
+check('client 空值兜底返回空串（host 对空串返回 null）', clientSrc.includes("return '';"), true);
+
+// 5) 回复完成即时刷新（不等 30s 轮询）
+check('client 监听会话统计变化触发 load', clientSrc.includes('statsProj && statsProj.turns'), true);
+check('client 防抖 800ms 刷新', clientSrc.includes('window.setTimeout(load, 800)'), true);
+
 console.log('\n结果：' + pass + ' PASS / ' + fail + ' FAIL');
 process.exit(fail > 0 ? 1 : 0);
