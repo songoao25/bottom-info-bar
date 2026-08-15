@@ -11,6 +11,146 @@ import { join } from 'node:path'
 const DATA_DIR = process.env.BOTTOM_INFO_BAR_DATA_DIR || join(homedir(), '.dsh', 'bottom-info-bar')
 const DATA_FILE = join(DATA_DIR, 'usage-records.json')
 
+// ---------- 双模式（余额制 / 订阅制）配置 ----------
+// 订阅制 provider 集合：这些 provider 走"额度窗口"显示而非余额（可在此增删）
+const SUBSCRIPTION_PROVIDERS = ['codex', 'chatgpt', 'opencode-go', 'opencode']
+// 订阅窗口时长（秒）：5 小时 / 7 天 / 30 天；映射带 5% 容差（接口值可能微调）
+const WINDOW_SECONDS = { five_hour: 18000, seven_day: 604800, monthly: 2592000 }
+const WINDOW_LABELS = { five_hour: '5小时', seven_day: '周', monthly: '月' }
+const WINDOW_ALERT_PERCENT = 90 // 任一窗口已用百分比 ≥ 该值 → 客户端红色 ⚠ 预警
+const CODEX_PLAN_NAMES = { plus: 'ChatGPT Plus', pro: 'ChatGPT Pro', team: 'ChatGPT Team', enterprise: 'ChatGPT Enterprise' }
+// OpenAI OAuth 公开 client_id（Codex CLI 开源常量，仓库 https://github.com/openai/codex 同款，非密钥）——
+// 用于 Codex access_token 续期请求，任何人可见，不属机密；保留本注释防止未来安全审计误判为凭证泄漏。
+const CODEX_OAUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann' // OpenAI OAuth 公开 client_id（token 续期用，非密钥）
+const SUBSCRIPTION_REFRESH_MS = 60000 // 订阅额度快照刷新周期（与余额一致）
+// 订阅源 auth 文件路径（可用环境变量覆盖——测试隔离用，避免测试误读真实登录态）
+const CODEX_AUTH_FILE = process.env.BOTTOM_INFO_BAR_CODEX_AUTH || join(homedir(), '.codex', 'auth.json')
+const OPENCODE_AUTH_FILE = process.env.BOTTOM_INFO_BAR_OPENCODE_AUTH || join(homedir(), '.local', 'share', 'opencode', 'auth.json')
+
+// ---------- 双模式纯逻辑（模式检测 / 窗口映射 / 响应解析；单测直接提取） ----------
+
+// 窗口时长（秒）→ 窗口键：18000≈5小时 / 604800≈7天 / 2592000≈30天，5% 容差；未知返回 null
+function codexWindowKey(limitWindowSeconds) {
+  if (typeof limitWindowSeconds !== 'number' || !isFinite(limitWindowSeconds)) return null
+  for (const key in WINDOW_SECONDS) {
+    const target = WINDOW_SECONDS[key]
+    if (Math.abs(limitWindowSeconds - target) / target <= 0.05) return key
+  }
+  return null
+}
+
+// 订阅 provider → 订阅源标识（codex / opencode-go）；非订阅 provider → null
+function subscriptionSourceFor(providerId) {
+  if (providerId === 'codex' || providerId === 'chatgpt') return 'codex'
+  if (providerId === 'opencode-go' || providerId === 'opencode') return 'opencode-go'
+  return null
+}
+
+// 余额制/订阅制判定：billingMode='auto' 按 provider 检测；'balance'/'subscription' 手动强制覆盖
+function detectBillingMode(providerId, billingMode) {
+  if (billingMode === 'balance' || billingMode === 'subscription') {
+    return { mode: billingMode, provider: providerId || '', reason: 'manual-override' }
+  }
+  const sub = SUBSCRIPTION_PROVIDERS.indexOf(providerId) >= 0
+  return { mode: sub ? 'subscription' : 'balance', provider: providerId || '', reason: 'provider:' + (providerId || 'unknown') }
+}
+
+// wham 响应的 plan_type → 显示名（未收录的 plan 类型按大写首字母兜底）
+function planDisplayName(planType) {
+  if (typeof planType === 'string' && planType.length > 0) {
+    const known = CODEX_PLAN_NAMES[planType]
+    if (known) return known
+    return 'ChatGPT ' + planType.charAt(0).toUpperCase() + planType.slice(1)
+  }
+  return 'ChatGPT Plus/Pro'
+}
+
+// 解析 Codex wham usage 响应：顶层 rate_limit.primary_window / secondary_window → 统一窗口数组
+// （wham 响应无 usage 包装层；结构异常返回 null；窗口缺失 / 未知时长 / 无百分比自动跳过，不报错、不占位）
+function parseCodexUsage(body) {
+  if (!body || typeof body !== 'object') return null
+  const rl = body.rate_limit
+  if (!rl || typeof rl !== 'object') return null
+  const windows = []
+  for (const slot of ['primary_window', 'secondary_window']) {
+    const win = rl[slot]
+    if (!win || typeof win !== 'object') continue
+    const key = codexWindowKey(win.limit_window_seconds)
+    if (!key) continue
+    const used = win.used_percent
+    if (typeof used !== 'number' || !isFinite(used)) continue
+    windows.push({
+      key: key,
+      label: WINDOW_LABELS[key],
+      usedPercent: Math.round(used),
+      resetsAt: typeof win.reset_at === 'number' && isFinite(win.reset_at) ? win.reset_at * 1000 : null,
+    })
+  }
+  // 同一窗口键去重（primary 优先）；保持出现顺序
+  const seen = {}
+  const unique = []
+  for (const w of windows) {
+    if (seen[w.key]) continue
+    seen[w.key] = true
+    unique.push(w)
+  }
+  return { plan: planDisplayName(body.plan_type), windows: unique }
+}
+
+// OpenCode Go 窗口键（rolling=5小时滚动窗口 / weekly / monthly）
+function openCodeGoWindowKey(apiKey) {
+  if (apiKey === 'rolling') return 'five_hour'
+  if (apiKey === 'weekly') return 'seven_day'
+  if (apiKey === 'monthly') return 'monthly'
+  return null
+}
+
+// 归一化重置时刻：数值（秒或毫秒）→ 毫秒；ISO 字符串 → 毫秒；无法解析 → null
+function normalizeResetAt(value) {
+  if (typeof value === 'number' && isFinite(value)) return value < 1e12 ? value * 1000 : value
+  if (typeof value === 'string') {
+    const t = Date.parse(value)
+    return isNaN(t) ? null : t
+  }
+  return null
+}
+
+// 解析 OpenCode Go usage 响应：usage.rolling / weekly / monthly → 统一窗口数组
+// status 非 'ok' 的窗口跳过（如额度超限 / 接口异常）；结构异常返回 null
+function parseOpenCodeGoUsage(body) {
+  if (!body || typeof body !== 'object') return null
+  const usage = body.usage
+  if (!usage || typeof usage !== 'object') return null
+  const windows = []
+  for (const apiKey of ['rolling', 'weekly', 'monthly']) {
+    const win = usage[apiKey]
+    if (!win || typeof win !== 'object') continue
+    if (win.status !== 'ok') continue
+    const percent = win.percent
+    if (typeof percent !== 'number' || !isFinite(percent)) continue
+    const key = openCodeGoWindowKey(apiKey)
+    windows.push({
+      key: key,
+      label: WINDOW_LABELS[key],
+      usedPercent: Math.round(percent),
+      resetsAt: normalizeResetAt(win.resetsAt),
+    })
+  }
+  return { plan: 'OpenCode Go', windows: windows }
+}
+
+// 快照更新规则（"失败保留旧快照"的纯函数形态）：失败保留旧 data/fetchedAt 只换 error；成功换 data 并更新 fetchedAt
+function mergeSubscriptionResult(prev, result) {
+  if (!result || result.error) {
+    return {
+      data: prev && prev.data ? prev.data : null,
+      fetchedAt: prev && prev.fetchedAt ? prev.fetchedAt : null,
+      error: result ? result.error : { kind: 'exception', message: '订阅额度请求未知异常' },
+    }
+  }
+  return { data: result.data || null, fetchedAt: Date.now(), error: null }
+}
+
 function loadUsageRecords() {
   try {
     if (!existsSync(DATA_FILE)) return []
@@ -96,6 +236,7 @@ export default {
       infoDensity: 'full', // 'full' 完整 | 'compact' 简洁
       activeProvider: 'deepseek',
       alertThreshold: ALERT_THRESHOLD,
+      billingMode: 'auto', // 'auto' 按 provider 检测余额/订阅 | 'balance'/'subscription' 手动强制覆盖
     };
 
     // ---------- 余额快照（60s 定时刷新；失败保留上次快照） ----------
@@ -163,6 +304,174 @@ export default {
 
     function refreshAllBalances() {
       for (const pid in PROVIDERS) refreshProviderBalance(pid);
+    }
+
+    // ---------- 订阅额度快照（复用余额模式：周期刷新 / 失败保留旧快照 / seq 防旧覆盖） ----------
+    let subscriptions = {}; // { [sourceKey]: { data: {provider,plan,windows}, fetchedAt, error } }
+    const subscriptionSeq = {}; // 每 source 刷新序号：仅最新一次请求可写入快照
+    const subscriptionInFlight = {}; // { [sourceKey]: Promise } 并发去重（同一时刻只发一个请求）
+    const subscriptionRequested = {}; // 仅"客户端请求过"的源进入 60s 周期刷新（余额制下不打扰订阅接口）
+
+    async function fetchWhamUsage(token, accountId) {
+      const headers = { Authorization: 'Bearer ' + token, Accept: 'application/json' };
+      if (accountId) headers['ChatGPT-Account-Id'] = accountId;
+      const res = await fetch('https://chatgpt.com/backend-api/wham/usage', {
+        headers: headers,
+        signal: AbortSignal.timeout(15000),
+      });
+      const text = await res.text();
+      let body = null;
+      try { body = JSON.parse(text); } catch (err) { /* 非 JSON 响应体 → 交由解析层判定结构异常 */ }
+      return { ok: res.ok, status: res.status, body: body };
+    }
+
+    // access_token 过期时用 refresh_token 换新 token；新 token 仅内存使用，绝不落盘/打印
+    async function refreshCodexToken(refreshToken) {
+      try {
+        const res = await fetch('https://auth.openai.com/oauth/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            grant_type: 'refresh_token',
+            client_id: CODEX_OAUTH_CLIENT_ID,
+            refresh_token: refreshToken,
+          }).toString(),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!res.ok) return null;
+        const body = await res.json();
+        return (body && typeof body.access_token === 'string' && body.access_token.length > 0) ? body.access_token : null;
+      } catch (err) {
+        return null; // 续期失败 → 调用方标记 auth 错误，保留旧快照
+      }
+    }
+
+    async function fetchCodexUsage() {
+      let auth = null;
+      try {
+        auth = JSON.parse(readFileSync(CODEX_AUTH_FILE, 'utf8'));
+      } catch (err) {
+        return { error: { kind: 'no-key', message: '未找到 Codex 登录凭证（~/.codex/auth.json）' } };
+      }
+      const tokens = auth && auth.tokens;
+      const access = tokens && tokens.access_token;
+      const refresh = tokens && tokens.refresh_token;
+      const accountId = tokens && tokens.account_id;
+      if (typeof access !== 'string' || access.length === 0) {
+        return { error: { kind: 'no-key', message: 'Codex 登录凭证缺少 access_token' } };
+      }
+      let token = access;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const r = await fetchWhamUsage(token, accountId);
+        if (r.status === 401 && attempt === 0 && typeof refresh === 'string' && refresh.length > 0) {
+          const fresh = await refreshCodexToken(refresh);
+          if (!fresh) return { error: { kind: 'auth', message: 'Codex access_token 过期且续期失败' } };
+          token = fresh;
+          continue;
+        }
+        if (!r.ok) return { error: { kind: 'http', message: '请求失败（HTTP ' + r.status + '）' } };
+        const parsed = parseCodexUsage(r.body);
+        if (!parsed) return { error: { kind: 'parse', message: '响应格式异常' } };
+        return { data: { provider: 'codex', plan: parsed.plan, windows: parsed.windows } };
+      }
+      return { error: { kind: 'http', message: '请求失败（HTTP 401）' } };
+    }
+
+    // OpenCode Go key 解析：DSH credentials（OPENCODE_GO_API_KEY）→ opencode auth.json（opencode-go → opencode）
+    async function resolveOpenCodeGoKey() {
+      try {
+        const cred = await ctx.credentials.resolve('OPENCODE_GO_API_KEY');
+        if (cred && typeof cred.value === 'string' && cred.value.length > 0) return cred.value;
+      } catch (err) { /* 回退到 auth.json */ }
+      try {
+        const auth = JSON.parse(readFileSync(OPENCODE_AUTH_FILE, 'utf8'));
+        for (const name of ['opencode-go', 'opencode']) {
+          const entry = auth && auth[name];
+          if (entry && typeof entry === 'object') {
+            if (typeof entry.key === 'string' && entry.key.length > 0) return entry.key;
+            if (typeof entry.apiKey === 'string' && entry.apiKey.length > 0) return entry.apiKey;
+          }
+        }
+      } catch (err) { /* 未配置 → 返回 null */ }
+      return null;
+    }
+
+    async function fetchOpenCodeGoUsage() {
+      const key = await resolveOpenCodeGoKey();
+      if (!key) {
+        return { error: { kind: 'no-key', message: '未配置 OpenCode Go（OPENCODE_GO_API_KEY 或 opencode auth.json）' } };
+      }
+      try {
+        const res = await fetch('https://opencode.ai/zen/go/v1/usage', {
+          headers: { Authorization: 'Bearer ' + key },
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!res.ok) return { error: { kind: 'http', message: '请求失败（HTTP ' + res.status + '）' } };
+        const body = await res.json();
+        const parsed = parseOpenCodeGoUsage(body);
+        if (!parsed) return { error: { kind: 'parse', message: '响应格式异常' } };
+        return { data: { provider: 'opencode-go', plan: parsed.plan, windows: parsed.windows } };
+      } catch (err) {
+        return { error: { kind: 'exception', message: String((err && err.message) || err) } };
+      }
+    }
+
+    const SUBSCRIPTION_SOURCES = {
+      codex: { fetch: fetchCodexUsage },
+      'opencode-go': { fetch: fetchOpenCodeGoUsage },
+    };
+
+    // 触发一次刷新（并发去重 + seq 防旧覆盖）；返回本次刷新 Promise
+    function kickSubscriptionRefresh(sourceKey) {
+      const src = SUBSCRIPTION_SOURCES[sourceKey];
+      if (!src) return Promise.resolve();
+      if (subscriptionInFlight[sourceKey]) return subscriptionInFlight[sourceKey];
+      const seq = (subscriptionSeq[sourceKey] || 0) + 1;
+      subscriptionSeq[sourceKey] = seq;
+      subscriptionInFlight[sourceKey] = src.fetch().then(function (result) {
+        if (subscriptionSeq[sourceKey] === seq) {
+          subscriptions[sourceKey] = mergeSubscriptionResult(subscriptions[sourceKey], result);
+        }
+      }).catch(function (err) {
+        if (subscriptionSeq[sourceKey] === seq) {
+          subscriptions[sourceKey] = mergeSubscriptionResult(subscriptions[sourceKey], {
+            error: { kind: 'exception', message: String((err && err.message) || err) },
+          });
+        }
+      }).finally(function () {
+        subscriptionInFlight[sourceKey] = null;
+      });
+      return subscriptionInFlight[sourceKey];
+    }
+
+    // 60s 周期刷新：仅刷新客户端请求过的源（余额制模式下不打扰未公开的订阅接口）
+    function refreshActiveSubscriptions() {
+      for (const sourceKey in SUBSCRIPTION_SOURCES) {
+        if (subscriptionRequested[sourceKey]) kickSubscriptionRefresh(sourceKey);
+      }
+    }
+
+    // RPC：当前订阅额度快照 + 模式判定（非订阅模式直接返回，不发任何订阅请求）
+    async function getSubscriptionSnapshotRpc() {
+      const sel = modelSelection();
+      const bm = detectBillingMode(sel.provider, config.billingMode);
+      const out = { mode: bm.mode, provider: sel.provider, reason: bm.reason, source: null, plan: null, windows: [], fetchedAt: null, error: null };
+      if (bm.mode !== 'subscription') return out;
+      const sourceKey = subscriptionSourceFor(sel.provider);
+      if (!sourceKey) return out;
+      out.source = sourceKey;
+      subscriptionRequested[sourceKey] = true; // 该源进入 60s 周期刷新
+      const snap = subscriptions[sourceKey] || { data: null, fetchedAt: null, error: null };
+      const stale = !snap.fetchedAt || (Date.now() - snap.fetchedAt) > SUBSCRIPTION_REFRESH_MS;
+      if (stale) {
+        const inflight = kickSubscriptionRefresh(sourceKey);
+        if (!snap.data && !snap.error) await inflight; // 从未有结果 → 等本次刷新（首屏即可见数据/错误）
+      }
+      const cur = subscriptions[sourceKey] || { data: null, fetchedAt: null, error: null };
+      if (cur.data) { out.plan = cur.data.plan; out.windows = cur.data.windows; }
+      out.fetchedAt = cur.fetchedAt;
+      out.error = cur.error;
+      return out;
     }
 
     // ---------- 北京时间峰谷判定 ----------
@@ -768,7 +1077,14 @@ export default {
         return spendTrend(Date.now(), days);
       },
       getConfig: function () {
-        return { displayMode: config.displayMode, infoDensity: config.infoDensity, activeProvider: config.activeProvider, alertThreshold: config.alertThreshold };
+        return { displayMode: config.displayMode, infoDensity: config.infoDensity, activeProvider: config.activeProvider, alertThreshold: config.alertThreshold, billingMode: config.billingMode };
+      },
+      getBillingMode: function () {
+        const sel = modelSelection();
+        return detectBillingMode(sel.provider, config.billingMode);
+      },
+      getSubscriptionSnapshot: function () {
+        return getSubscriptionSnapshotRpc();
       },
       setDisplayMode: function (args) {
         const mode = args && typeof args === 'object' ? args.mode : null;
@@ -872,7 +1188,9 @@ export default {
 
     // ---------- 启动即刷 + 60s 定时刷新 ----------
     refreshAllBalances();
+    refreshActiveSubscriptions(); // 惰性：无客户端请求过订阅源则不发起网络请求
     ctx.interval(refreshAllBalances, 60000);
+    ctx.interval(refreshActiveSubscriptions, 60000);
 
     // 卸载时冲刷未落盘的记账记录
     return function () {

@@ -11,6 +11,7 @@
 
 ## 特性
 
+- **双模式信息栏**：自动检测当前服务商是**订阅制**（Codex / OpenCode Go）还是**余额制**。订阅制 row2 只显示三类信息：**订阅服务 + 模型**（如 `OpenCode Go · V4 Flash`）、**5小时 / 周 / 月** 三窗口额度（如 `5h 9% · 周 62% · 月 40%`）、**距重置倒计时**（最紧窗口，天级格式如 `距重置 1d 21h`），任一窗口 ≥90% 红色 ⚠ 预警；余额/时段/本对话花费等余额制信息一律不显示。余额制保持原样。两种模式互斥替换，绝不叠加
 - **一体替换**：默认替换原生统计栏，原生信息（轮·步 / LLM 耗时 / 工具调用 / 缓存命中 / 输入输出 tokens）照常显示、格式与原生一致；**首 token 平均 / tok/s** 两个速度指标移入 hover 浮窗，单行一眼看完
 - **服务商 + 具体模型**：自动识别并美化显示（DeepSeek V4 Flash、Kimi K3、GLM 4.6 …），服务商名加粗
 - **实时余额**：DeepSeek `/user/balance` 真实 API，60 秒自动刷新；失败保留上次快照并提示，不中断使用
@@ -54,7 +55,11 @@ dsh plugin --profile web add /path/to/bottom-info-bar/plugin
 ## 配置
 
 - **API Key**：在 **设置 → 模型** 中配置 DeepSeek API Key（环境变量名 `DEEPSEEK_API_KEY`）。未配置时信息栏给出引导文案，其余功能不受影响。
+- **模式**：按当前服务商自动切换 余额制 / 订阅制（`codex` / `chatgpt` / `opencode-go` / `opencode` → 订阅制，其余 → 余额制）；内部提供 `billingMode: 'auto' | 'balance' | 'subscription'` 开关（默认 `auto`）可强制指定模式。
 - **数据口径**：高峰时段为北京时间 9:00–12:00、14:00–18:00；价格表内置 DeepSeek V4 系列与 OpenAI 参考价，未收录模型不参与花费统计。
+- **订阅额度数据源**：
+  - **Codex**：自动读取 `~/.codex/auth.json`（Codex CLI 登录态），无需额外配置；token 仅在本机内存使用，绝不落盘 / 打印 / 入库。
+  - **OpenCode Go**：在 **设置 → 模型** 配置 `OPENCODE_GO_API_KEY`，或先用 opencode CLI 登录订阅（写入 `~/.local/share/opencode/auth.json` 的 `opencode-go` 条目）。未配置时显示"未配置 OpenCode Go"引导，不报错。
 
 ### 数据存储（插件专属目录）
 
@@ -89,6 +94,8 @@ cd bottom-info-bar
 | 安装后刷新页面没看到信息栏 | 需**重启** `dsh web`（宿主进程加载插件） |
 | 余额显示「未配置 DEEPSEEK_API_KEY」 | 在 设置 → 模型 配置 DeepSeek Key |
 | 余额显示「⚠ 刷新失败，显示上次快照」 | 网络/Key 临时故障，60s 后自动重试 |
+| 显示「未配置 OpenCode Go」 | 在 设置 → 模型 配置 `OPENCODE_GO_API_KEY`，或用 opencode CLI 登录 OpenCode Go |
+| Codex 额度显示异常/为空 | wham 接口未公开、可能变更；失败自动保留上次快照并 60s 重试 |
 | 想改回原生统计栏 | 卸载本插件并重启 |
 
 ## 开发

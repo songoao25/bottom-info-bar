@@ -13,6 +13,27 @@
 - **本对话金额归属**：新开对话不再显示上一个会话的花费（客户端多路获取当前会话 ID；宿主对空/未命中会话返回 ¥0.000 而非回退最近会话；会话 ID 前缀差异归一化）
 - **回复完成即时更新金额**：会话统计变化时自动刷新，不再等最长 30 秒的轮询间隔
 
+## [1.1.0] - 2026-08-17
+
+> v1.1.0 尚未发布（未打 tag / 未发 Release）；本文档为发布前承诺说明。
+
+### Added
+
+- **双模式信息栏（余额制 / 订阅制）**：按当前激活模型的 provider 自动检测——`codex` / `chatgpt` / `opencode-go` / `opencode` 走订阅制，其余走余额制；两种模式互斥替换、绝不叠加；内部 `billingMode: 'auto' | 'balance' | 'subscription'` 开关（默认 `auto`）可强制覆盖
+- **订阅制额度显示（row2 只三类信息）**：**订阅服务 + 模型**（如 `OpenCode Go · V4 Flash`；"服务商"指订阅服务本身，不是模型厂商）| **`5h xx% · 周 xx% · 月 xx%`**（三窗口全显示，数值加粗）| **距重置倒计时**（最紧窗口，天级格式如 `1d 21h`）；余额 / 时段 / 本对话花费 / token 用量等余额制信息一律不显示；hover 浮窗展示订阅源、套餐名与每窗口的已用百分比 / 重置时刻 / 重置剩余
+- **窗口缺失自适应**：某窗口不存在（如 Codex 无 5 小时窗口）自动跳过，不占位、不报错；compact 密度下订阅制精简为最紧窗口
+- **额度预警**：任一窗口已用 ≥90% 红色 ⚠ 提示，title 说明哪个窗口告急
+- **订阅数据源适配器**：Codex（`chatgpt.com/backend-api/wham/usage`，读 `~/.codex/auth.json`，access_token 过期自动用 refresh_token 续期一次，新 token 仅内存使用）与 OpenCode Go（`opencode.ai/zen/go/v1/usage`，DSH credentials `OPENCODE_GO_API_KEY` → opencode auth.json 两级解析，未配置显示引导不报错）
+- **快照机制复用余额模式**：60 秒周期刷新、失败保留上次快照、seq 防旧请求覆盖新数据；新增 `getBillingMode` / `getSubscriptionSnapshot` 两个 RPC，`getConfig` 新增 `billingMode` 字段
+
+### Security
+
+- **订阅 token 零落盘**：Codex / OpenCode Go 的 token 只在本机内存中用于请求头，绝不写入任何文件、不打印、不进 git 历史、不进文档；错误信息不含 token 片段
+
+### Fixed
+
+- **测试隔离**：新增环境变量 `BOTTOM_INFO_BAR_CODEX_AUTH` / `BOTTOM_INFO_BAR_OPENCODE_AUTH` 覆盖订阅源凭证文件路径，测试不读取真实登录态、不发真实网络请求
+
 ## [1.0.0] - 2026-08-15
 
 首个可分发版本。以静态插件包（bundle）形式安装，安装一次后每次打开 DeepSeek Harness 自动生效，无需手动重新加载。

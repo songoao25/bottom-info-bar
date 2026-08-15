@@ -26,6 +26,7 @@ const cases = [
   ['test-display-name（host.js）', ['tests/test-display-name.js'], join(root)],
   ['test-density-toggle（host.js + client-bundle.js）', ['tests/test-density-toggle.js'], join(root)],
   ['test-spend-accounting（host.js）', ['tests/test-spend-accounting.js'], join(root)],
+  ['test-dual-mode（host.js 双模式逻辑 + client 订阅渲染）', ['tests/test-dual-mode.js'], join(root)],
   ['check-host（host.js）', ['tests/check-host.js', HOST], join(root)],
 ]
 

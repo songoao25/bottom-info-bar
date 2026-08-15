@@ -16,6 +16,8 @@ const RPC_BASE = '/_dsh/bottom-info-bar';
 // 排版优化（正式版）：完整模式下隐藏"首 token 平均 / tok/s"两个低优先级原生字段，
 // 让原生统计行在 748px 对话宽度下单行放得下；hover 信息浮窗（title）仍显示全部原生信息。
 const HIDE_SPEED_FIELDS = true;
+// 订阅窗口预警阈值：任一窗口已用百分比 ≥ 该值 → 红色 ⚠（与 host 常量保持一致）
+const WINDOW_ALERT_PERCENT = 90;
 
 function rpc(method, args) {
   return fetch(RPC_BASE + '/' + method, {
@@ -135,7 +137,7 @@ module.exports = {
       const usageProj = props.useProjection ? props.useProjection('tokenUsage') : undefined;
 
       const [state, setState] = React.useState({
-        loading: true, balance: null, pricing: null, usage: null, fatal: null,
+        loading: true, balance: null, pricing: null, usage: null, billingMode: null, sub: null, fatal: null,
       });
       const [now, setNow] = React.useState(Date.now());
 
@@ -161,11 +163,13 @@ module.exports = {
           rpc('getBalanceSnapshot'),
           rpc('getPricing'),
           rpc('getUsageSummary', { sessionId: sessionId }),
+          rpc('getBillingMode'),
+          rpc('getSubscriptionSnapshot'),
         ]).then(function (results) {
-          setState({ loading: false, balance: results[0], pricing: results[1], usage: results[2], fatal: null });
+          setState({ loading: false, balance: results[0], pricing: results[1], usage: results[2], billingMode: results[3], sub: results[4], fatal: null });
         }).catch(function (err) {
           setState(function (s) {
-            return { loading: false, balance: s.balance, pricing: s.pricing, usage: s.usage, fatal: String((err && err.message) || err) };
+            return { loading: false, balance: s.balance, pricing: s.pricing, usage: s.usage, billingMode: s.billingMode, sub: s.sub, fatal: String((err && err.message) || err) };
           });
         });
       }, [resolveSessionId]);
@@ -228,25 +232,31 @@ module.exports = {
         const p = function (x) { return String(x).padStart(2, '0'); };
         return h > 0 ? h + 'h' + p(m) + 'm' : p(m) + ':' + p(s);
       }
+      // 订阅窗口重置时刻（本地时区，hover 浮窗用）
+      function formatDateTime(ms) {
+        const d = new Date(ms);
+        const p = function (x) { return String(x).padStart(2, '0'); };
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+      }
+      // 订阅窗口重置倒计时（天级格式）：≥1 天 → '1d 21h'；≥1 小时 → '3h 12m'；<1 小时 → '12:34'
+      function fmtResetCountdown(ms) {
+        if (ms == null || ms <= 0) return '00:00';
+        const totalSec = Math.floor(ms / 1000);
+        const d = Math.floor(totalSec / 86400);
+        const h = Math.floor((totalSec % 86400) / 3600);
+        const m = Math.floor((totalSec % 3600) / 60);
+        if (d > 0) return d + 'd ' + h + 'h';
+        if (h > 0) return h + 'h ' + String(m).padStart(2, '0') + 'm';
+        return String(m).padStart(2, '0') + ':' + String(totalSec % 60).padStart(2, '0');
+      }
 
       // 数字统一加粗（仅数字本身）
       function num(t) {
         return React.createElement('b', { className: 'bi-num' }, String(t));
       }
 
-      const groups = [];
-      const bal = state.balance;
-      const alertActive = !!(bal && bal.alert && bal.alert.active);
-      // 两态严格判定：density 只能是 'full' 或 'compact'（host 校验 + 本地防抖保证）
-      const full = props.density === 'full';
-
-      // ---- 统一顺序：服务商+模型 → 余额 → 高峰价/空闲价 → 距高峰/空闲 → 本对话(hover 今天/近一月/全部) ----
-      if (state.fatal) {
-        groups.push(React.createElement('span', { className: 'bi-err', key: 'fatal' }, '加载失败：' + state.fatal));
-      } else if (state.loading) {
-        groups.push(React.createElement('span', { key: 'loading' }, '加载中…'));
-      } else {
-        // 1) 服务商 + 具体模型（最左侧；纯显示，不拦截点击——点击冒泡到整条信息栏触发密度切换；hover 展示定价模式）
+      // 服务商 + 具体模型（两种模式共用；纯显示，不拦截点击——点击冒泡到整条信息栏触发密度切换；hover 展示定价模式）
+      function providerGroup() {
         const pr = state.pricing;
         const provLabel = (pr && pr.providerDisplay) ? pr.providerDisplay : '未知';
         const modelLabel = (pr && pr.modelDisplay) ? pr.modelDisplay
@@ -254,16 +264,42 @@ module.exports = {
         const provTitle = '服务商：' + provLabel + ' ' + modelLabel + '\n'
           + (pr && pr.mode === 'peak-valley' ? '定价：峰谷价（高峰 9-12、14-18 点）'
             : (pr && pr.mode === 'flat' ? '定价：固定价' : '定价：未收录，按默认计'));
-        groups.push(React.createElement('span', {
-          key: 'prov',
-          title: provTitle,
-        },
+        return React.createElement('span', { key: 'prov', title: provTitle },
           React.createElement('b', null, provLabel),
           ' ',
           modelLabel,
-        ));
+        );
+      }
 
-        // 2) 余额（纯金额；hover 仅展示余额，不显示充值/赠金）
+      // 订阅服务名（订阅制模式下"服务商"指订阅服务本身，不是模型厂商）
+      function subscriptionServiceName(provider) {
+        if (provider === 'chatgpt') return 'ChatGPT';
+        if (provider === 'codex') return 'Codex';
+        if (provider === 'opencode-go' || provider === 'opencode') return 'OpenCode Go';
+        return '订阅';
+      }
+
+      // 订阅制模型组：订阅服务名 · 具体模型（如 `OpenCode Go · V4 Flash`、`Codex · GPT 5 Codex`）
+      function subscriptionProviderGroup() {
+        const pr = state.pricing;
+        const serviceName = subscriptionServiceName(state.billingMode && state.billingMode.provider);
+        const modelLabel = (pr && pr.modelDisplay) ? pr.modelDisplay
+          : (pr && pr.model ? pr.model : '未知模型');
+        const title = '订阅服务：' + serviceName + '\n模型：' + modelLabel;
+        return React.createElement('span', { key: 'subprov', title: title },
+          React.createElement('b', null, serviceName),
+          ' · ',
+          modelLabel,
+        );
+      }
+
+      // ---- 余额制模式（v1.0.0 现状，完全不动）：服务商+模型 → 余额 → 时段 → 倒计时 → 本对话花费 ----
+      function pushBalanceGroups(groups) {
+        const bal = state.balance;
+        const alertActive = !!(bal && bal.alert && bal.alert.active);
+        groups.push(providerGroup());
+
+        // 余额（纯金额；hover 仅展示余额，不显示充值/赠金）
         if (bal && bal.error && bal.error.kind === 'no-key') {
           groups.push(React.createElement('span', { className: 'bi-err', key: 'nokey' },
             '未配置 DEEPSEEK_API_KEY → 设置→模型 填写'));
@@ -285,7 +321,8 @@ module.exports = {
           groups.push(React.createElement('span', { className: 'bi-err', key: 'berr' }, '余额获取失败：' + bal.error.message));
         }
 
-        // 2) 时段：仅峰谷价服务商显示"高峰价/空闲价"（flat/unknown 服务商不显示；hover 展示具体价格）
+        // 时段：仅峰谷价服务商显示"高峰价/空闲价"（flat/unknown 服务商不显示；hover 展示具体价格）
+        const pr = state.pricing;
         if (pr && pr.mode === 'peak-valley') {
           const peakNow = pr.period === 'peak';
           const p = pr.prices || {};
@@ -296,7 +333,7 @@ module.exports = {
             peakNow ? '高峰价' : '空闲价'));
         }
 
-        // 3) 倒计时：仅峰谷价服务商显示"距高峰/距空闲"（hover 展示下次切换时刻；数字加粗）
+        // 倒计时：仅峰谷价服务商显示"距高峰/距空闲"（hover 展示下次切换时刻；数字加粗）
         if (pr && pr.mode === 'peak-valley' && pr.nextSwitch) {
           const peakNow = pr.period === 'peak';
           const countdownTitle = '下次切换：' + (peakNow ? '空闲价' : '高峰价') + ' 于 ' + pr.nextSwitch.atLabel;
@@ -305,7 +342,7 @@ module.exports = {
             num(fmtCountdown(pr.nextSwitch.at - now))));
         }
 
-        // 6) 本对话花费（只显示钱；hover 浮窗显示 今天 / 近一月 / 全部；金额数字加粗）
+        // 本对话花费（只显示钱；hover 浮窗显示 今天 / 近一月 / 全部；金额数字加粗）
         // 始终显示：新会话/对话刚开始尚无记账时显示 ¥0.000，hover 仍可查看持久化的 今天/近一月/全部
         const usg = state.usage;
         if (usg) {
@@ -324,6 +361,90 @@ module.exports = {
             '本对话 ',
             num(costTxt)));
         }
+      }
+
+      // ---- 订阅制模式（互斥替换余额制版，row2 只三类信息）：
+      //      订阅服务+模型 → 三窗口额度 → 距重置倒计时（最紧窗口）；余额/时段/花费/token 均不显示 ----
+      function pushSubscriptionGroups(groups) {
+        groups.push(subscriptionProviderGroup());
+        const sub = state.sub;
+        if (!sub) {
+          groups.push(React.createElement('span', { key: 'subload' }, '订阅额度加载中…'));
+          return;
+        }
+        const rawWindows = Array.isArray(sub.windows) ? sub.windows : [];
+        const windows = rawWindows.filter(function (w) {
+          return w && typeof w.usedPercent === 'number';
+        });
+        const hasData = windows.length > 0;
+        // 错误分支：无旧数据时给出明确引导 / 错误文案；有旧数据时走下方渲染并附"刷新失败"标记
+        if (sub.error && !hasData) {
+          if (sub.error.kind === 'no-key') {
+            const hint = sub.source === 'opencode-go'
+              ? '未配置 OpenCode Go → 设置→模型 填写 OPENCODE_GO_API_KEY'
+              : '未找到 Codex 登录凭证（~/.codex/auth.json）';
+            groups.push(React.createElement('span', { className: 'bi-err', key: 'subnokey' }, hint));
+          } else {
+            groups.push(React.createElement('span', { className: 'bi-err', key: 'suberr' }, '订阅额度获取失败：' + sub.error.message));
+          }
+          return;
+        }
+        // 窗口缺失（如 Codex 无 5 小时窗口）→ 跳过窗口组，不占位、不报错
+        if (hasData) {
+          // 最紧窗口 = 已用百分比最高者；倒计时取"含重置时刻"的最紧窗口（无重置时刻则跳过倒计时）
+          const tight = windows.slice().sort(function (a, b) { return b.usedPercent - a.usedPercent; })[0];
+          const tightForCountdown = windows.filter(function (w) { return w.resetsAt; })
+            .sort(function (a, b) { return b.usedPercent - a.usedPercent; })[0] || null;
+          // compact 密度精简：只显示最紧窗口；hover 明细仍是全部窗口
+          const visible = full ? windows : [tight];
+          const alarmWindows = windows.filter(function (w) { return w.usedPercent >= WINDOW_ALERT_PERCENT; });
+          const titleLines = ['订阅源：' + (sub.source === 'codex' ? 'Codex' : 'OpenCode Go') + (sub.plan ? '（' + sub.plan + '）' : '')]
+            .concat(windows.map(function (w) {
+              return w.label + '窗口：已用 ' + w.usedPercent + '%'
+                + (w.resetsAt ? ' · 重置 ' + formatDateTime(w.resetsAt) + ' · 剩余 ' + fmtResetCountdown(w.resetsAt - now) : '');
+            }));
+          const winNodes = [];
+          for (let i = 0; i < visible.length; i++) {
+            const w = visible[i];
+            if (i > 0) winNodes.push(' · ');
+            winNodes.push(w.label + ' ', num(w.usedPercent + '%'));
+          }
+          groups.push(React.createElement('span', { key: 'subwin', title: titleLines.join('\n') },
+            ...winNodes,
+            alarmWindows.length > 0
+              ? React.createElement('span', {
+                  className: 'bi-err', key: 'subalarm',
+                  title: '窗口告急：' + alarmWindows.map(function (w) { return w.label + '窗口已用 ' + w.usedPercent + '%'; }).join('、'),
+                }, ' ⚠')
+              : null,
+          ));
+          if (sub.error) {
+            groups.push(React.createElement('span', { className: 'bi-stale', key: 'substale' }, '⚠ 刷新失败，显示上次快照'));
+          }
+          // 距重置倒计时（最紧窗口，天级格式如 '1d 21h'）
+          if (tightForCountdown && tightForCountdown.resetsAt) {
+            const cdTitle = '最紧窗口：' + tightForCountdown.label + '窗口 已用 ' + tightForCountdown.usedPercent + '% · 重置 '
+              + formatDateTime(tightForCountdown.resetsAt);
+            groups.push(React.createElement('span', { key: 'subcd', title: cdTitle },
+              '距重置 ', num(fmtResetCountdown(tightForCountdown.resetsAt - now))));
+          }
+        }
+      }
+
+      const groups = [];
+      // 两态严格判定：density 只能是 'full' 或 'compact'（host 校验 + 本地防抖保证）
+      const full = props.density === 'full';
+      // 模式互斥：订阅制渲染订阅版 row2，余额制渲染 v1.0.0 现状，绝不叠加
+      const isSub = !!(state.billingMode && state.billingMode.mode === 'subscription');
+
+      if (state.fatal) {
+        groups.push(React.createElement('span', { className: 'bi-err', key: 'fatal' }, '加载失败：' + state.fatal));
+      } else if (state.loading) {
+        groups.push(React.createElement('span', { key: 'loading' }, '加载中…'));
+      } else if (isSub) {
+        pushSubscriptionGroups(groups);
+      } else {
+        pushBalanceGroups(groups);
       }
 
       // ---- 组装 ----

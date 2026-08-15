@@ -11,6 +11,7 @@ A single-line information bar for [DeepSeek Harness](https://github.com/deepseek
 
 ## Features
 
+- **Dual-mode billing bar** — Auto-detects whether the active provider is subscription-based (Codex / OpenCode Go) or balance-based. Subscription mode shows exactly three items: the **subscription service + model** (e.g. `OpenCode Go · V4 Flash`), the **5-hour / weekly / monthly quota windows** (e.g. `5h 9% · 周 62% · 月 40%`), and a **countdown to the tightest reset** (e.g. `距重置 1d 21h`), plus a ⚠ alert when any window hits 90%+. Balance mode stays exactly as before. The two modes replace each other, never overlap.
 - **Drop-in replacement** — Replaces the native stats row while keeping its core original information (turns/steps, LLM latency, tool calls, cache hit rate, in/out tokens) with a native-consistent layout. Speed metrics (TTFT, tok/s) move to the hover tooltip so the row stays on a single line.
 - **Provider & model detection** — Auto-detects and pretty-prints the active provider and model (DeepSeek V4 Flash, Kimi K3, GLM 4.6, …) with a bold provider name.
 - **Live balance** — Fetches real balance from DeepSeek's `/user/balance` API, auto-refreshes every 60 s, and keeps the last known snapshot on failure so usage is never interrupted.
@@ -55,6 +56,10 @@ For detailed installation, troubleshooting, and upgrade instructions, see [docs/
 
 - **API key**: configure the DeepSeek API key under **Settings → Models** (environment variable `DEEPSEEK_API_KEY`). Without it, the plugin shows a hint and every other feature keeps working.
 - **Data scope**: peak hours are 09:00–12:00 and 14:00–18:00 (Beijing time). Built-in pricing covers DeepSeek V4 models plus OpenAI reference prices; models not in the table are excluded from spend statistics.
+- **Mode**: the bar switches automatically between balance mode and subscription mode based on the active provider (`codex` / `chatgpt` / `opencode-go` / `opencode` → subscription; everything else → balance). An internal `billingMode: 'auto' | 'balance' | 'subscription'` setting (default `auto`) allows forcing a mode.
+- **Subscription sources**:
+  - **Codex**: reads `~/.codex/auth.json` (your Codex CLI login) automatically — nothing to configure. Tokens are used in memory only: never written to disk, never logged, never committed.
+  - **OpenCode Go**: set `OPENCODE_GO_API_KEY` under **Settings → Models**, or log in with the opencode CLI (writes the `opencode-go` entry in `~/.local/share/opencode/auth.json`). Without a key the bar shows a "not configured" hint instead of an error.
 
 ### Data storage (plugin-owned directory)
 
@@ -89,6 +94,8 @@ After restarting, the native stats row returns automatically with no residue (th
 | Bar does not appear after a page refresh | **Restart** `dsh web` (the host process loads plugins) |
 | Balance shows "DEEPSEEK_API_KEY not configured" | Add the key under Settings → Models |
 | Balance shows "⚠ refresh failed, showing last snapshot" | Transient network/key issue; retries automatically after 60 s |
+| Shows "OpenCode Go not configured" | Add `OPENCODE_GO_API_KEY` under Settings → Models, or configure OpenCode Go in the opencode CLI |
+| Codex quotas look wrong or empty | The wham endpoint is undocumented and may change; failures keep the last snapshot and retry every 60 s |
 | Want the original stats row back | Uninstall the plugin and restart |
 
 ## Development

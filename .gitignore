@@ -26,3 +26,9 @@ credentials.yaml
 # IDE
 .idea/
 .vscode/
+
+# 构建产物（由 build 生成，不入 git）
+plugin/lib/
+
+# 本地工具目录（工作树存在、未跟踪，防误 add）
+.dsh-vision-toolkit/

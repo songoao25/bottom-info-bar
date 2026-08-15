@@ -18,8 +18,10 @@ cd bottom-info-bar
 # 默认安装到 web profile；其他 profile 需以 `dsh web` 方式使用：
 ./install.sh --profile <profile名>
 
-# 方式二：dsh 插件命令
+# 方式二：dsh 插件命令（先构建，plugin/lib/ 由 build 生成、不入 git）
 git clone https://github.com/songoao25/bottom-info-bar.git
+cd bottom-info-bar/plugin && node scripts/build.mjs
+cd ..
 dsh plugin --profile web add /path/to/bottom-info-bar/plugin
 ```
 
@@ -46,6 +48,13 @@ dsh --profile web --dump-config | grep -A2 bottom-info-bar
 
 在 **设置 → 模型** 中配置 DeepSeek API Key（环境变量名 `DEEPSEEK_API_KEY`）。
 未配置时信息栏显示引导文案，其余功能（统计/定价/记账）不受影响。
+
+## 配置订阅额度（可选，v1.1.0）
+
+信息栏会自动检测当前模型所属模式：**订阅制**（Codex / OpenCode Go）显示三窗口额度，**余额制**（DeepSeek 等）显示余额。订阅额度数据源：
+
+- **Codex**：读取 `~/.codex/auth.json`（Codex CLI 登录态），无需额外配置；token 仅在本机内存中使用，不落盘、不记录。
+- **OpenCode Go**：在 **设置 → 模型** 配置 `OPENCODE_GO_API_KEY`（或先用 opencode CLI 登录其订阅，写入 `~/.local/share/opencode/auth.json` 的 `opencode-go` 条目）。未配置时信息栏显示"未配置 OpenCode Go"引导，不报错。
 
 ## 更新版本
 

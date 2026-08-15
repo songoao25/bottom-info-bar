@@ -10,6 +10,9 @@ import { join } from 'node:path'
 // 隔离数据目录：记账落盘与真实用户数据互不影响
 const tmpData = mkdtempSync(join(tmpdir(), 'bib-smoke-'))
 process.env.BOTTOM_INFO_BAR_DATA_DIR = tmpData
+// 隔离订阅源凭证：指向不存在的 auth 文件 → no-key 分支，测试绝不读取真实登录态/发网络请求
+process.env.BOTTOM_INFO_BAR_CODEX_AUTH = join(tmpData, 'no-codex-auth.json')
+process.env.BOTTOM_INFO_BAR_OPENCODE_AUTH = join(tmpData, 'no-opencode-auth.json')
 
 const plugin = (await import('../plugin/lib/index.js')).default
 
@@ -20,12 +23,12 @@ function check(name, cond, detail) {
 }
 
 // ---------- 桩环境 ----------
-function makeStub() {
+function makeStub(providerId, model) {
   const captured = { llmListener: null, route: null, intervalCalls: 0 }
   const ctx = {
     get(name) {
       if (name === 'agentDefaultModel') {
-        return { currentSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'high' }) }
+        return { currentSelection: () => ({ provider: providerId || 'deepseek-official', model: model || 'deepseek-v4-flash', reasoningEffort: 'high' }) }
       }
       return undefined
     },
@@ -118,6 +121,15 @@ check('webServer 路由已注册（prefix /_dsh/bottom-info-bar）',
 {
   const r = await invoke(first.captured.route, '/_dsh/bottom-info-bar/getConfig', 'GET')
   check('getConfig → 200 + 默认 full', r.status === 200 && r.payload.infoDensity === 'full')
+  check('getConfig → 含 billingMode=auto', r.status === 200 && r.payload.billingMode === 'auto')
+}
+{
+  const r = await invoke(first.captured.route, '/_dsh/bottom-info-bar/getBillingMode', 'GET')
+  check('getBillingMode → 200 + balance（deepseek-official）', r.status === 200 && r.payload.mode === 'balance' && r.payload.provider === 'deepseek-official' && r.payload.reason === 'provider:deepseek-official')
+}
+{
+  const r = await invoke(first.captured.route, '/_dsh/bottom-info-bar/getSubscriptionSnapshot', 'GET')
+  check('getSubscriptionSnapshot → 200 + balance 模式（不发订阅请求）', r.status === 200 && r.payload.mode === 'balance' && r.payload.source === null && r.payload.windows.length === 0)
 }
 {
   const r = await invoke(first.captured.route, '/_dsh/bottom-info-bar/unknownMethod', 'GET')
@@ -134,6 +146,31 @@ check('webServer 路由已注册（prefix /_dsh/bottom-info-bar）',
 {
   const r = await invoke(first.captured.route, '/_dsh/bottom-info-bar/getConfig', 'GET')
   check('切换后 getConfig → compact', r.status === 200 && r.payload.infoDensity === 'compact')
+}
+
+// ---------- 订阅制模式（Codex / OpenCode Go provider；auth 文件被隔离为不存在 → no-key，不发网络） ----------
+{
+  const subCtx = makeStub('codex', 'gpt-5.3-codex')
+  const subDisposer = plugin.apply(subCtx.ctx)
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  {
+    const r = await invoke(subCtx.captured.route, '/_dsh/bottom-info-bar/getBillingMode', 'GET')
+    check('getBillingMode → subscription（provider=codex）', r.status === 200 && r.payload.mode === 'subscription' && r.payload.reason === 'provider:codex')
+  }
+  {
+    const r = await invoke(subCtx.captured.route, '/_dsh/bottom-info-bar/getSubscriptionSnapshot', 'GET')
+    check('getSubscriptionSnapshot（codex 无凭证）→ no-key 错误 + 空窗口', r.status === 200 && r.payload.mode === 'subscription' && r.payload.source === 'codex' && r.payload.error && r.payload.error.kind === 'no-key' && Array.isArray(r.payload.windows) && r.payload.windows.length === 0 && r.payload.plan === null)
+  }
+  subDisposer()
+
+  const ogCtx = makeStub('opencode-go', 'miimo-1.5-rc')
+  const ogDisposer = plugin.apply(ogCtx.ctx)
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  {
+    const r = await invoke(ogCtx.captured.route, '/_dsh/bottom-info-bar/getSubscriptionSnapshot', 'GET')
+    check('getSubscriptionSnapshot（opencode-go 未配置）→ no-key 引导', r.status === 200 && r.payload.mode === 'subscription' && r.payload.source === 'opencode-go' && r.payload.error && r.payload.error.kind === 'no-key')
+  }
+  ogDisposer()
 }
 
 // ---------- llm/stream 记账 ----------
