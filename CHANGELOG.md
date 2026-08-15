@@ -20,8 +20,9 @@
 
 ### Added
 
-- **Codex 订阅桥接**：在 DSH 内直接使用 ChatGPT Plus/Pro 订阅额度对话——启动时幂等注册 `openai-codex` 模型路由（`llm-pi-ai.providers.openai-codex`，`apiKeyEnv: OPENAI_CODEX_API_KEY`），模型选择器出现 ChatGPT 系列模型，选中即用，不填密钥、不扫码
-- **令牌自动管理与续期**：读 `~/.codex/auth.json`（需先 `codex login` 一次）；JWT `exp` 判定过期（剩余 <45 分钟才续期），官方刷新接口续期后安全写回（保留 account_id 等字段、原子写 tmp+rename），最新令牌注入 DSH 凭据库立即生效；启动即同步一次 + 每 30 分钟周期
+- **ChatGPT 订阅官方 OAuth 绑定**：DSH 设置侧边栏新增「ChatGPT 订阅」页——点「授权登录」→ 浏览器跳转 `auth.openai.com` 官方登录页 → ChatGPT 账号授权 → 回调自动完成绑定（PKCE(S256) + state 校验 + 本地回调 127.0.0.1:1455，与 OpenCode 同款，零依赖）；页面显示绑定状态（未绑定 / 已绑定：套餐 + 令牌有效期 + 额度摘要），支持「重新授权」「解绑」（解绑清令牌与 DSH 凭据，不动 codex CLI 自身数据）；**不再依赖 codex CLI 登录态**（已登录 codex CLI 的登录态可兼容复用）
+- **Codex 订阅桥接**：在 DSH 内直接使用 ChatGPT Plus/Pro 订阅额度对话——启动时幂等注册 `openai-codex` 模型路由（`llm-pi-ai.providers.openai-codex`，`apiKeyEnv: OPENAI_CODEX_API_KEY`），模型选择器出现 ChatGPT 系列模型，选中即用，无需 API Key
+- **令牌自动管理与续期**：绑定后令牌写入 `~/.codex/auth.json`（标准位置，0600，兼容 codex CLI / OpenCode 同读）；JWT `exp` 判定过期（剩余 <45 分钟才续期），官方刷新接口续期后安全写回（保留 account_id 等字段、原子写 tmp+rename），最新令牌注入 DSH 凭据库立即生效；启动即同步一次 + 每 30 分钟周期
 - **信息栏订阅制联动**：桥接启用后信息栏自动切订阅制，显示订阅窗口剩余额度与距重置倒计时（如 `ChatGPT · … | 周 57% | 距重置 1d 21h`，窗口数值为剩余百分比）
 
 ### Changed
@@ -36,8 +37,9 @@
 
 ### Security
 
+- **OAuth 安全**：PKCE(S256)（verifier 仅内存）+ state 校验防 CSRF/中间人；本地回调服务仅监听 127.0.0.1:1455 且只接受已知 state；回调超时/失败自动关闭清理；令牌不出内存 / auth.json / DSH 凭据库
 - **令牌全程受控**：仅存于内存 + `~/.codex/auth.json`（0600）+ DSH 凭据库（0600）；不打印、不进日志、不进仓库
-- **卸载清理**：`./uninstall.sh --purge-codex` 安全移除 `llm-pi-ai.providers.openai-codex` 配置（修改前自动备份）与 `OPENAI_CODEX_API_KEY` 凭据行，其余配置原样保留；`~/.codex/auth.json`（codex CLI 自身登录态）不动
+- **卸载清理**：`./uninstall.sh --purge-codex` 安全移除 `llm-pi-ai.providers.openai-codex` 配置（修改前自动备份）与 `OPENAI_CODEX_API_KEY` 凭据行，其余配置原样保留；`~/.codex/auth.json` 本身不删除（codex CLI 可能也在使用）
 
 ## [1.1.0] - 2026-08-17
 

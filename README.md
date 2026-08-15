@@ -12,7 +12,7 @@ A single-line information bar for [DeepSeek Harness](https://github.com/deepseek
 ## Features
 
 - **Dual-mode billing bar** — Auto-detects whether the active provider is subscription-based (Codex / OpenCode Go) or balance-based. Subscription mode shows exactly three items: the **subscription service + model** (e.g. `OpenCode Go · V4 Flash`), the **5-hour / weekly / monthly quota remaining** (e.g. `5h 91% · 周 38% · 月 60%`, remaining = 100 − used, bold), and a **countdown to the tightest reset** (e.g. `距重置 1d 21h`), plus a ⚠ alert when any window is 90%+ used (≤10% remaining). Balance mode stays exactly as before. The two modes replace each other, never overlap.
-- **Codex subscription bridge (v1.2.0)** — Use your ChatGPT Plus / Pro subscription right inside DSH: pick a ChatGPT model (`gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.5`, …) in the model selector and chat — it draws on your subscription quota with no API key setup. The bridge reads your existing `~/.codex/auth.json` (run `codex login` once first), auto-refreshes the token before it expires and keeps it injected into DSH, and the info bar automatically switches to subscription mode showing your quota windows.
+- **ChatGPT subscription binding — official OAuth (v1.2.0)** — Use your ChatGPT Plus / Pro subscription right inside DSH: open **Settings → ChatGPT Subscription**, click **Authorize**, sign in with your ChatGPT account on the official login page, and you're bound. The page shows the binding status (not bound / bound, token validity, quota summary) with **Reauthorize** and **Unbind** actions. Then pick a ChatGPT model (`gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.5`, …) in the model selector and chat — it draws on your subscription quota with no API key setup. The token lives in `~/.codex/auth.json` (mode `0600`), is auto-refreshed before expiry and injected into DSH, and the info bar switches to subscription mode automatically. An existing Codex CLI login is recognized and reused.
 - **Drop-in replacement** — Replaces the native stats row while keeping its core original information (turns/steps, LLM latency, tool calls, cache hit rate, in/out tokens) with a native-consistent layout. Speed metrics (TTFT, tok/s) move to the hover tooltip so the row stays on a single line.
 - **Provider & model detection** — Shows the provider and model names exactly as in the model switcher (from the DSH LLM catalog, e.g. `DeepSeek-V4-Flash`); the provider name is bold, and is omitted when it is already a prefix of the model name.
 - **Live balance** — Fetches real balance from DeepSeek's `/user/balance` API, auto-refreshes every 60 s, and keeps the last known snapshot on failure so usage is never interrupted.
@@ -59,14 +59,14 @@ For detailed installation, troubleshooting, and upgrade instructions, see [docs/
 - **Data scope**: peak hours are 09:00–12:00 and 14:00–18:00 (Beijing time). Built-in pricing covers DeepSeek V4 models plus OpenAI reference prices; models not in the table are excluded from spend statistics.
 - **Mode**: the bar switches automatically between balance mode and subscription mode based on the active provider (`codex` / `chatgpt` / `opencode-go` / `opencode` → subscription; everything else → balance). An internal `billingMode: 'auto' | 'balance' | 'subscription'` setting (default `auto`) allows forcing a mode.
 - **Subscription sources**:
-  - **Codex**: reads `~/.codex/auth.json` (your Codex CLI login) automatically — nothing to configure. Quota display keeps tokens in memory only. Since v1.2.0, model calls reuse the same login: the bridge refreshes the token before expiry and stores it in DSH's own credential store (`~/.dsh/.credentials.yaml`, mode `0600`) so the Codex models appear in the model selector. Tokens are never printed, logged, or committed.
+  - **ChatGPT (Codex)**: bind once via **Settings → ChatGPT Subscription → Authorize** (official OAuth browser flow — PKCE + local callback, same as OpenCode). Tokens are stored in `~/.codex/auth.json` (mode `0600`), refreshed before expiry, and injected into DSH's own credential store (`~/.dsh/.credentials.yaml`, mode `0600`) so ChatGPT models appear in the model selector. An existing Codex CLI login is recognized automatically. Tokens are never printed, logged, or committed.
   - **OpenCode Go**: set `OPENCODE_GO_API_KEY` under **Settings → Models**, or log in with the opencode CLI (writes the `opencode-go` entry in `~/.local/share/opencode/auth.json`). Without a key the bar shows a "not configured" hint instead of an error.
 
-#### Codex bridge: known limitations
+#### ChatGPT subscription: known limitations
 
 - The `chatgpt.com` backend is an **undocumented interface** — it may change or stop working at any time; failures degrade gracefully (last snapshot kept, auto-retry), never a crash.
+- Conversations use the **SSE** (official HTTP) channel instead of WebSocket for stability — occasional latency or retries are possible; failures auto-retry.
 - Available models depend on your subscription plan. Measured on a ChatGPT Plus plan (codex CLI 0.147.0): `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini` all work; **`gpt-5.6-terra` is the recommended default** (matches the codex CLI default). `gpt-5.3-codex-spark` requires a **higher plan**.
-- The bridge requires a working Codex CLI login; run `codex login` once before first use.
 
 ### Data storage (plugin-owned directory)
 
@@ -89,11 +89,11 @@ All spend data lives in the plugin's own data directory, isolated from other plu
 ```bash
 cd bottom-info-bar
 ./uninstall.sh                       # remove the plugin only
-./uninstall.sh --purge-codex         # also purge the Codex bridge config & credential
+./uninstall.sh --purge-codex         # also purge the ChatGPT subscription (Codex) config & credential
 # or: dsh plugin --profile web remove bottom-info-bar
 ```
 
-`--purge-codex` additionally removes the `llm-pi-ai.providers.openai-codex` block from `~/.dsh/settings.yaml` (backed up first) and the `OPENAI_CODEX_API_KEY` line from `~/.dsh/.credentials.yaml`, keeping everything else intact. Running DSH processes keep config/credentials in memory — **restart `dsh web`** for the purge to take effect. Your `~/.codex/auth.json` (the Codex CLI's own login) is never touched; if you reinstall and use the bridge later, the config is recreated automatically.
+`--purge-codex` additionally removes the `llm-pi-ai.providers.openai-codex` block from `~/.dsh/settings.yaml` (backed up first) and the `OPENAI_CODEX_API_KEY` line from `~/.dsh/.credentials.yaml`, keeping everything else intact. Running DSH processes keep config/credentials in memory — **restart `dsh web`** for the purge to take effect. `~/.codex/auth.json` itself is not deleted (it may also be used by the Codex CLI); only the DSH-side config and credential are removed — reauthorize to bind again.
 
 After restarting, the native stats row returns automatically with no residue (the ledger file under `~/.dsh/bottom-info-bar/` is your data and is kept; remove it manually if you want to reset the statistics).
 
@@ -105,7 +105,9 @@ After restarting, the native stats row returns automatically with no residue (th
 | Balance shows "DEEPSEEK_API_KEY not configured" | Add the key under Settings → Models |
 | Balance shows "⚠ refresh failed, showing last snapshot" | Transient network/key issue; retries automatically after 60 s |
 | Shows "OpenCode Go not configured" | Add `OPENCODE_GO_API_KEY` under Settings → Models, or configure OpenCode Go in the opencode CLI |
-| Codex quotas look wrong or empty | The wham endpoint is undocumented and may change; failures keep the last snapshot and retry every 60 s |
+| How do I bind my ChatGPT subscription? | Open **Settings → ChatGPT Subscription → Authorize** and sign in with your ChatGPT account on the official page |
+| ChatGPT quotas look wrong or empty | The wham endpoint is undocumented and may change; failures keep the last snapshot and retry every 60 s |
+| Why is the model's reasoning process not shown? | DSH does not render the model's internal reasoning in the UI — a DSH interface-layer limitation, not the plugin's |
 | Want the original stats row back | Uninstall the plugin and restart |
 
 ## Development
