@@ -34,12 +34,6 @@ git clone https://github.com/songoao25/bottom-info-bar.git
 dsh plugin --profile web add /path/to/bottom-info-bar/plugin
 ```
 
-### 方式三：npm 包（可选，发布后可用）
-
-```bash
-dsh plugin --profile web add bottom-info-bar
-```
-
 安装完成后**重启 DeepSeek Harness**（或刷新页面），底部信息栏自动出现，无需任何手动操作。
 
 详细说明见 [docs/INSTALL.md](docs/INSTALL.md)。

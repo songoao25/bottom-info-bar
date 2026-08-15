@@ -1,15 +1,14 @@
 window.__ModuleLoader__.load({ id: "bottom-info-bar", factory: (require) => {
 var module = { exports: {} }; var exports = module.exports;
 // Bottom Info Bar（底部信息栏插件）— client half（静态 bundle 形态）
-// 由动态插件 client-v24.js 移植，业务与样式完全一致：
-//  - host.call(method, args) → fetch POST /_dsh/bottom-info-bar/<method>（JSON）
-//  - ctx.interval / ctx.timeout → window.setInterval / window.setTimeout
-//  - styles.insert(css) → document 注入 <style>（installStyles）
-//  - React 由 bundle 的 require('react') 提供（seed 模块）
-// v24 样式策略：① 只把数字加粗（.bi-num 700）② 服务商名加粗 ③ 高峰价琥珀色+加粗、空闲价绿色+加粗
-// v25 显示逻辑修复：① 本对话花费不再要求 currentSession.tokens > 0 才显示——
-//    新会话/对话刚开始（尚无记账）时始终显示"本对话 ¥0.000"，hover 仍可查看持久化的 今天/近一月/全部；
-//    ② 原生统计行移除 steps > 0 门槛：完整模式下对话刚开始即显示"0 轮 · 0 步"。
+// - host.call(method, args) → fetch POST /_dsh/bottom-info-bar/<method>（JSON）
+// - ctx.interval / ctx.timeout → window.setInterval / window.setTimeout
+// - styles.insert(css) → document 注入 <style>（installStyles）
+// - React 由 bundle 的 require('react') 提供（seed 模块）
+// 样式策略：① 只把数字加粗（.bi-num 700）② 服务商名加粗 ③ 高峰价琥珀色+加粗、空闲价绿色+加粗
+// 显示行为：① 本对话花费始终显示——新会话/对话刚开始（尚无记账）时显示"本对话 ¥0.000"，
+//   hover 仍可查看持久化的 今天/近一月/全部；
+//   ② 完整模式下原生统计行无 steps 门槛，对话刚开始即显示"0 轮 · 0 步"。
 'use strict';
 
 const React = require('react');

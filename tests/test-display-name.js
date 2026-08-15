@@ -1,5 +1,5 @@
 // 服务商/模型显示名自动识别回归（兼容任意服务商），提取 plugin/src/host.js 中的逻辑验证
-// 用法：node tests/test-host-v7.js
+// 用法：node tests/test-display-name.js
 const fs = require('fs');
 const src = fs.readFileSync(__dirname + '/../plugin/src/host.js', 'utf8');
 

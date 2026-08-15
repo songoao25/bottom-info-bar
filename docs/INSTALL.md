@@ -21,9 +21,6 @@ cd bottom-info-bar
 # 方式二：dsh 插件命令
 git clone https://github.com/songoao25/bottom-info-bar.git
 dsh plugin --profile web add /path/to/bottom-info-bar/plugin
-
-# 方式三：npm 包（发布后可用）
-dsh plugin --profile web add bottom-info-bar
 ```
 
 ### 安装原理

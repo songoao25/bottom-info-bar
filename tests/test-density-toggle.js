@@ -1,5 +1,5 @@
-// 密度切换两态审计（v21）：验证 完整/简洁 只有两种形态、无第三态、无竞态、无服务商切换拦截
-// 用法：node src/test-density-v20.js
+// 密度切换两态审计：验证 完整/简洁 只有两种形态、无第三态、无竞态、无服务商切换拦截
+// 用法：node tests/test-density-toggle.js
 const fs = require('fs');
 
 // ---- host 侧审计：setInfoDensity 严格校验 + getConfig 返回 ----

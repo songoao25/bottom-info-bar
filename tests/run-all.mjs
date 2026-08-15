@@ -14,9 +14,9 @@ const HOST = join(root, 'plugin', 'src', 'host.js')
 const cases = [
   ['smoke-static-host', ['tests/smoke-static-host.mjs'], join(root)],
   ['test-static-client（plugin/src/client-bundle.js）', ['tests/test-static-client.js'], join(root)],
-  ['test-host-v7（host.js）', ['tests/test-host-v7.js'], join(root)],
-  ['test-density-v20（host.js + client-bundle.js）', ['tests/test-density-v20.js'], join(root)],
-  ['test-spend-v10（host.js）', ['tests/test-spend-v10.js'], join(root)],
+  ['test-display-name（host.js）', ['tests/test-display-name.js'], join(root)],
+  ['test-density-toggle（host.js + client-bundle.js）', ['tests/test-density-toggle.js'], join(root)],
+  ['test-spend-accounting（host.js）', ['tests/test-spend-accounting.js'], join(root)],
   ['check-host（host.js）', ['tests/check-host.js', HOST], join(root)],
 ]
 

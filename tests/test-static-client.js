@@ -1,4 +1,4 @@
-// 静态 client（plugin/src/client-bundle.js）显示逻辑审计（v25）：
+// 静态 client（plugin/src/client-bundle.js）显示逻辑审计：
 // ① 本对话花费始终显示——不再以 currentSession.tokens > 0 为门槛（新会话/对话刚开始显示 ¥0.000，
 //    hover 仍可查看持久化的 今天/近一月/全部）；
 // ② 原生统计行不再以 steps > 0 为门槛——完整模式下对话刚开始即显示 "0 轮 · 0 步"；

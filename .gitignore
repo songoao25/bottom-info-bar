@@ -6,6 +6,9 @@ pnpm-lock.yaml
 .DS_Store
 *.log
 *.tmp
+*.swp
+*.swo
+*~
 
 # 密钥与敏感文件（永远不得入库）
 *.pem
@@ -13,3 +16,7 @@ pnpm-lock.yaml
 .env
 .env.*
 credentials.yaml
+
+# 打包产物
+*.tgz
+*.tar.gz

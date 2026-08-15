@@ -1,5 +1,5 @@
 // host 记账真实性审计：验证"本对话/今天/近一月/全部"按真实 usage 逐请求记账、按会话区分
-// 用法：node tests/test-spend-v10.js
+// 用法：node tests/test-spend-accounting.js
 const fs = require('fs');
 const src = fs.readFileSync(__dirname + '/../plugin/src/host.js', 'utf8');
 
