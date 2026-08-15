@@ -11,8 +11,8 @@ A single-line information bar for [DeepSeek Harness](https://github.com/deepseek
 
 ## Features
 
-- **Dual-mode billing bar** — Auto-detects whether the active provider is subscription-based (Codex / OpenCode Go) or balance-based. Subscription mode shows exactly three items: the **subscription service + model** (e.g. `OpenCode Go · V4 Flash`), the **5-hour / weekly / monthly quota windows** (e.g. `5h 9% · 周 62% · 月 40%`), and a **countdown to the tightest reset** (e.g. `距重置 1d 21h`), plus a ⚠ alert when any window hits 90%+. Balance mode stays exactly as before. The two modes replace each other, never overlap.
-- **Codex subscription bridge (v1.2.0)** — Use your ChatGPT Plus / Pro subscription right inside DSH: pick a Codex model (`gpt-5.3-codex-spark`, `gpt-5.5`, …) in the model selector and chat — it draws on your subscription quota with no API key setup. The bridge reads your existing `~/.codex/auth.json` (run `codex login` once first), auto-refreshes the token before it expires and keeps it injected into DSH, and the info bar automatically switches to subscription mode showing your quota windows.
+- **Dual-mode billing bar** — Auto-detects whether the active provider is subscription-based (Codex / OpenCode Go) or balance-based. Subscription mode shows exactly three items: the **subscription service + model** (e.g. `OpenCode Go · V4 Flash`), the **5-hour / weekly / monthly quota remaining** (e.g. `5h 91% · 周 38% · 月 60%`, remaining = 100 − used, bold), and a **countdown to the tightest reset** (e.g. `距重置 1d 21h`), plus a ⚠ alert when any window is 90%+ used (≤10% remaining). Balance mode stays exactly as before. The two modes replace each other, never overlap.
+- **Codex subscription bridge (v1.2.0)** — Use your ChatGPT Plus / Pro subscription right inside DSH: pick a ChatGPT model (`gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.5`, …) in the model selector and chat — it draws on your subscription quota with no API key setup. The bridge reads your existing `~/.codex/auth.json` (run `codex login` once first), auto-refreshes the token before it expires and keeps it injected into DSH, and the info bar automatically switches to subscription mode showing your quota windows.
 - **Drop-in replacement** — Replaces the native stats row while keeping its core original information (turns/steps, LLM latency, tool calls, cache hit rate, in/out tokens) with a native-consistent layout. Speed metrics (TTFT, tok/s) move to the hover tooltip so the row stays on a single line.
 - **Provider & model detection** — Auto-detects and pretty-prints the active provider and model (DeepSeek V4 Flash, Kimi K3, GLM 4.6, …) with a bold provider name.
 - **Live balance** — Fetches real balance from DeepSeek's `/user/balance` API, auto-refreshes every 60 s, and keeps the last known snapshot on failure so usage is never interrupted.
@@ -65,7 +65,7 @@ For detailed installation, troubleshooting, and upgrade instructions, see [docs/
 #### Codex bridge: known limitations
 
 - The `chatgpt.com` backend is an **undocumented interface** — it may change or stop working at any time; failures degrade gracefully (last snapshot kept, auto-retry), never a crash.
-- Available models depend on your subscription plan — some models (e.g. certain `gpt-5.x`) may be **Pro-only**.
+- Available models depend on your subscription plan. Measured on a ChatGPT Plus plan (codex CLI 0.147.0): `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini` all work; **`gpt-5.6-terra` is the recommended default** (matches the codex CLI default). `gpt-5.3-codex-spark` requires a **higher plan**.
 - The bridge requires a working Codex CLI login; run `codex login` once before first use.
 
 ### Data storage (plugin-owned directory)

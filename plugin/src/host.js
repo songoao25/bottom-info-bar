@@ -1144,13 +1144,28 @@ export default {
         const providers = cur && typeof cur === 'object' && cur.providers && typeof cur.providers === 'object' ? cur.providers : {};
         const existing = providers['openai-codex'];
         if (existing && typeof existing.apiKeyEnv === 'string' && existing.apiKeyEnv.length > 0) {
+          // 自我升级：桥接自有的旧默认配置（apiKeyEnv=OPENAI_CODEX_API_KEY 且显示名仍为旧值 Codex）
+          // → 仅改显示名为 ChatGPT（Codex 与 ChatGPT 已合并，实际 provider 显示 ChatGPT），保留其余字段；
+          //   用户自定义配置（apiKeyEnv 非桥接注入值）绝不覆盖
+          if (existing.apiKeyEnv === 'OPENAI_CODEX_API_KEY' && existing.displayName === 'Codex') {
+            try {
+              await settings.mutate('llm-pi-ai', [{
+                op: 'set',
+                path: ['providers', 'openai-codex'],
+                value: Object.assign({}, existing, { displayName: 'ChatGPT' }),
+              }]);
+            } catch (upErr) {
+              codexBridgeState.error = { kind: 'settings', message: 'openai-codex 显示名更新失败，稍后重试' };
+              console.warn('[bottom-info-bar] Codex 路由显示名更新失败（稍后自动重试）', String((upErr && upErr.message) || upErr));
+            }
+          }
           codexBridgeState.routeConfigured = true; // 已配置（含用户自定义）→ 幂等返回，不覆盖
           return;
         }
         await settings.mutate('llm-pi-ai', [{
           op: 'set',
           path: ['providers', 'openai-codex'],
-          value: { apiKeyEnv: 'OPENAI_CODEX_API_KEY', displayName: 'Codex' },
+          value: { apiKeyEnv: 'OPENAI_CODEX_API_KEY', displayName: 'ChatGPT' },
         }]);
         codexBridgeState.routeConfigured = true;
       } catch (err) {
@@ -1283,8 +1298,10 @@ export default {
         return { displayMode: config.displayMode, infoDensity: config.infoDensity, activeProvider: config.activeProvider, alertThreshold: config.alertThreshold, billingMode: config.billingMode };
       },
       getBillingMode: function () {
+        // 纯本地计算（零网络开销；客户端 2s 高频轮询专用）：返回 mode+provider+model，
+        // 客户端据此检测模型/服务商切换并立即完整刷新信息栏
         const sel = modelSelection();
-        return detectBillingMode(sel.provider, config.billingMode);
+        return Object.assign(detectBillingMode(sel.provider, config.billingMode), { model: sel.model });
       },
       getSubscriptionSnapshot: function () {
         return getSubscriptionSnapshotRpc();

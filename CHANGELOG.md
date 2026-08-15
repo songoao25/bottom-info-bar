@@ -16,13 +16,20 @@
 ## [1.2.0] - 2026-08-17
 
 > v1.2.0 尚未发布（未打 tag / 未发 Release）；本文档为发布前承诺说明。
-> 已知限制：`chatgpt.com` 后端为非公开接口，可能变更或失效（失效时自动降级、不崩溃）；可用模型以订阅计划为准（如部分 `gpt-5.x` 可能仅 Pro 订阅可用）。
+> 已知限制：`chatgpt.com` 后端为非公开接口，可能变更或失效（失效时自动降级、不崩溃）；可用模型以订阅计划为准（实测 Plus 可用 `gpt-5.6-*` / `gpt-5.5` / `gpt-5.4` / `gpt-5.4-mini`，`gpt-5.3-codex-spark` 需更高计划）。
 
 ### Added
 
-- **Codex 订阅桥接**：在 DSH 内直接使用 ChatGPT Plus/Pro 订阅额度对话——启动时幂等注册 `openai-codex` 模型路由（`llm-pi-ai.providers.openai-codex`，`apiKeyEnv: OPENAI_CODEX_API_KEY`），模型选择器出现 Codex 系列模型，选中即用，不填密钥、不扫码
+- **Codex 订阅桥接**：在 DSH 内直接使用 ChatGPT Plus/Pro 订阅额度对话——启动时幂等注册 `openai-codex` 模型路由（`llm-pi-ai.providers.openai-codex`，`apiKeyEnv: OPENAI_CODEX_API_KEY`），模型选择器出现 ChatGPT 系列模型，选中即用，不填密钥、不扫码
 - **令牌自动管理与续期**：读 `~/.codex/auth.json`（需先 `codex login` 一次）；JWT `exp` 判定过期（剩余 <45 分钟才续期），官方刷新接口续期后安全写回（保留 account_id 等字段、原子写 tmp+rename），最新令牌注入 DSH 凭据库立即生效；启动即同步一次 + 每 30 分钟周期
-- **信息栏订阅制联动**：桥接启用后信息栏自动切订阅制，显示订阅窗口额度与距重置倒计时（如 `Codex · … | 周 43% | 距重置 1d 21h`）
+- **信息栏订阅制联动**：桥接启用后信息栏自动切订阅制，显示订阅窗口剩余额度与距重置倒计时（如 `ChatGPT · … | 周 57% | 距重置 1d 21h`，窗口数值为剩余百分比）
+
+### Changed
+
+- **提供商显示名 Codex → ChatGPT**：Codex 与 ChatGPT 已合并，`openai-codex` 路由显示名与信息栏订阅服务名统一显示 ChatGPT（`codex` 保持 Codex）；已注册的旧桥接路由自动升级显示名（仅改显示名、保留其余字段，用户自定义配置绝不覆盖）
+- **额度显示改为剩余百分比**：订阅窗口显示 **剩余 = 100 − 已用**（如 `5h 91% · 周 56% · 月 60%`，紧凑标签 + 数值加粗）；hover 浮窗明确写「剩余 xx%（已用 xx%）· 重置 …· 距重置 …」；预警触发条件不变（已用 ≥90% = 剩余 ≤10%），告急文案同步改为「剩余 ≤10%」
+- **模型切换秒级同步**：客户端每 2 秒轮询 host 纯本地的 `getBillingMode`（零网络开销），检测到模型/服务商切换立即完整刷新信息栏，不再等最长 30 秒；订阅额度接口仍保持惰性门控 + 60s 周期，不被高频轮询触发
+- **模型可用性实测（2026-08-17，codex CLI 0.147.0 / ChatGPT Plus）**：`gpt-5.6-terra` / `gpt-5.6-luna` / `gpt-5.6-sol` / `gpt-5.5` / `gpt-5.4` / `gpt-5.4-mini` 对话实测可用（以订阅计划为准）；默认推荐 `gpt-5.6-terra`（与 codex CLI 默认一致）；`gpt-5.3-codex-spark` 需更高计划
 
 ### Security
 

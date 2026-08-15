@@ -281,11 +281,28 @@ async function boot(opts) {
     b.disposer();
   }
   {
+    // 自我升级：桥接自有的旧默认配置（apiKeyEnv=OPENAI_CODEX_API_KEY + displayName=Codex，即 v1.2.0 试用期注册的旧路由）
+    // → 仅改显示名为 ChatGPT（Codex/ChatGPT 已合并），保留其余字段；只发生一次（升级后 guard 不再命中）
+    const b = await boot({ settingsStore: { providers: { 'openai-codex': { apiKeyEnv: 'OPENAI_CODEX_API_KEY', displayName: 'Codex', baseURL: 'keep-me' } } } });
+    check('自我升级：旧桥接配置触发 mutate 恰好一次', b.calls.settingsMutate.length, 1);
+    ok('自我升级：显示名改为 ChatGPT 且保留其余字段', b.settingsStore.providers['openai-codex']
+      && b.settingsStore.providers['openai-codex'].displayName === 'ChatGPT'
+      && b.settingsStore.providers['openai-codex'].apiKeyEnv === 'OPENAI_CODEX_API_KEY'
+      && b.settingsStore.providers['openai-codex'].baseURL === 'keep-me',
+      JSON.stringify(b.settingsStore.providers['openai-codex']));
+    check('自我升级：routeConfigured=true + 令牌仍注入', b.rpc.routeConfigured === true && b.calls.credentialsSet.length, 1);
+    // 升级完成后再 boot（显示名已是 ChatGPT）→ guard 不再命中，零 mutate
+    const b2 = await boot({ settingsStore: { providers: { 'openai-codex': { apiKeyEnv: 'OPENAI_CODEX_API_KEY', displayName: 'ChatGPT' } } } });
+    check('自我升级：显示名已是 ChatGPT → 不再 mutate（幂等）', b2.calls.settingsMutate.length, 0);
+    b.disposer();
+    b2.disposer();
+  }
+  {
     // 缺失 → mutate 恰好一次，ops 形状正确
     const b = await boot({ settingsStore: { providers: {} } });
     check('路由注册：缺失时 mutate 恰好一次', b.calls.settingsMutate.length, 1);
     ok('路由注册：ns=llm-pi-ai + ops 形状正确', b.calls.settingsMutate[0] && b.calls.settingsMutate[0].ns === 'llm-pi-ai'
-      && JSON.stringify(b.calls.settingsMutate[0].ops) === JSON.stringify([{ op: 'set', path: ['providers', 'openai-codex'], value: { apiKeyEnv: 'OPENAI_CODEX_API_KEY', displayName: 'Codex' } }]),
+      && JSON.stringify(b.calls.settingsMutate[0].ops) === JSON.stringify([{ op: 'set', path: ['providers', 'openai-codex'], value: { apiKeyEnv: 'OPENAI_CODEX_API_KEY', displayName: 'ChatGPT' } }]),
       JSON.stringify(b.calls.settingsMutate[0]));
     check('路由注册：设置已生效（store 含配置）', b.settingsStore.providers['openai-codex'] && b.settingsStore.providers['openai-codex'].apiKeyEnv, 'OPENAI_CODEX_API_KEY');
     b.disposer();

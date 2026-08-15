@@ -180,6 +180,22 @@ module.exports = {
         return function () { window.clearInterval(id); };
       }, [load]);
 
+      // 模型/服务商切换秒级同步：getBillingMode 为 host 端纯本地计算（零网络开销），每 2 秒轮询一次；
+      // mode/provider/model 任一变化（即切换了模型/服务商）→ 立即完整 load()，不等 30s 主轮询。
+      // 注意：本轮询不触碰订阅接口——getSubscriptionSnapshot 仍仅由 load 调用（惰性门控 + 60s 周期不变）
+      React.useEffect(function () {
+        let lastKey = null;
+        const id = window.setInterval(function () {
+          rpc('getBillingMode').then(function (bm) {
+            if (!bm || typeof bm.mode !== 'string') return;
+            const key = bm.mode + ':' + (bm.provider || '') + ':' + (bm.model || '');
+            if (lastKey !== null && lastKey !== key) load();
+            lastKey = key;
+          }).catch(function () { /* 轮询失败静默：30s 主轮询兜底 */ });
+        }, 2000);
+        return function () { window.clearInterval(id); };
+      }, [load]);
+
       // 会话统计变化（回复中 turns/steps/tokens 增长，回复完成时停止）→ 防抖后即时刷新花费，
       // 不等下一个 30s 轮询：用户回复一结束即可看到真实金额
       React.useEffect(function () {
@@ -250,6 +266,18 @@ module.exports = {
         return String(m).padStart(2, '0') + ':' + String(totalSec % 60).padStart(2, '0');
       }
 
+      // 订阅窗口剩余百分比（剩余 = 100 - 已用；钳制 ≥0 防接口异常值）
+      function remainingPercent(w) {
+        return Math.max(0, 100 - w.usedPercent);
+      }
+      // 订阅窗口紧凑行标签（5小时 → '5h'，周 → '周'，月 → '月'）；hover 明细仍用完整标签
+      function compactWindowLabel(key) {
+        if (key === 'five_hour') return '5h';
+        if (key === 'seven_day') return '周';
+        if (key === 'monthly') return '月';
+        return '窗口';
+      }
+
       // 数字统一加粗（仅数字本身）
       function num(t) {
         return React.createElement('b', { className: 'bi-num' }, String(t));
@@ -272,9 +300,10 @@ module.exports = {
       }
 
       // 订阅服务名（订阅制模式下"服务商"指订阅服务本身，不是模型厂商）
+      // Codex 与 ChatGPT 已合并：实际 provider openai-codex / chatgpt 均显示 ChatGPT；codex 保持 Codex
       function subscriptionServiceName(provider) {
-        if (provider === 'chatgpt') return 'ChatGPT';
-        if (provider === 'codex' || provider === 'openai-codex') return 'Codex';
+        if (provider === 'chatgpt' || provider === 'openai-codex') return 'ChatGPT';
+        if (provider === 'codex') return 'Codex';
         if (provider === 'opencode-go' || provider === 'opencode') return 'OpenCode Go';
         return '订阅';
       }
@@ -391,30 +420,31 @@ module.exports = {
         }
         // 窗口缺失（如 Codex 无 5 小时窗口）→ 跳过窗口组，不占位、不报错
         if (hasData) {
-          // 最紧窗口 = 已用百分比最高者；倒计时取"含重置时刻"的最紧窗口（无重置时刻则跳过倒计时）
+          // 最紧窗口 = 剩余最少者（已用百分比最高者）；倒计时取"含重置时刻"的最紧窗口（无重置时刻则跳过倒计时）
           const tight = windows.slice().sort(function (a, b) { return b.usedPercent - a.usedPercent; })[0];
           const tightForCountdown = windows.filter(function (w) { return w.resetsAt; })
             .sort(function (a, b) { return b.usedPercent - a.usedPercent; })[0] || null;
           // compact 密度精简：只显示最紧窗口；hover 明细仍是全部窗口
           const visible = full ? windows : [tight];
+          // 预警触发条件不变：已用 ≥90%（= 剩余 ≤10%）
           const alarmWindows = windows.filter(function (w) { return w.usedPercent >= WINDOW_ALERT_PERCENT; });
-          const titleLines = ['订阅源：' + (sub.source === 'codex' ? 'Codex' : 'OpenCode Go') + (sub.plan ? '（' + sub.plan + '）' : '')]
+          const titleLines = ['订阅源：' + subscriptionServiceName(state.billingMode && state.billingMode.provider) + (sub.plan ? '（' + sub.plan + '）' : '')]
             .concat(windows.map(function (w) {
-              return w.label + '窗口：已用 ' + w.usedPercent + '%'
-                + (w.resetsAt ? ' · 重置 ' + formatDateTime(w.resetsAt) + ' · 剩余 ' + fmtResetCountdown(w.resetsAt - now) : '');
+              return w.label + '窗口：剩余 ' + remainingPercent(w) + '%（已用 ' + w.usedPercent + '%）'
+                + (w.resetsAt ? ' · 重置 ' + formatDateTime(w.resetsAt) + ' · 距重置 ' + fmtResetCountdown(w.resetsAt - now) : '');
             }));
           const winNodes = [];
           for (let i = 0; i < visible.length; i++) {
             const w = visible[i];
             if (i > 0) winNodes.push(' · ');
-            winNodes.push(w.label + ' ', num(w.usedPercent + '%'));
+            winNodes.push(compactWindowLabel(w.key) + ' ', num(remainingPercent(w) + '%'));
           }
           groups.push(React.createElement('span', { key: 'subwin', title: titleLines.join('\n') },
             ...winNodes,
             alarmWindows.length > 0
               ? React.createElement('span', {
                   className: 'bi-err', key: 'subalarm',
-                  title: '窗口告急：' + alarmWindows.map(function (w) { return w.label + '窗口已用 ' + w.usedPercent + '%'; }).join('、'),
+                  title: '窗口告急：' + alarmWindows.map(function (w) { return w.label + '窗口剩余 ≤10%'; }).join('、'),
                 }, ' ⚠')
               : null,
           ));
@@ -423,8 +453,8 @@ module.exports = {
           }
           // 距重置倒计时（最紧窗口，天级格式如 '1d 21h'）
           if (tightForCountdown && tightForCountdown.resetsAt) {
-            const cdTitle = '最紧窗口：' + tightForCountdown.label + '窗口 已用 ' + tightForCountdown.usedPercent + '% · 重置 '
-              + formatDateTime(tightForCountdown.resetsAt);
+            const cdTitle = '最紧窗口：' + tightForCountdown.label + '窗口 剩余 ' + remainingPercent(tightForCountdown)
+              + '%（已用 ' + tightForCountdown.usedPercent + '%） · 重置 ' + formatDateTime(tightForCountdown.resetsAt);
             groups.push(React.createElement('span', { key: 'subcd', title: cdTitle },
               '距重置 ', num(fmtResetCountdown(tightForCountdown.resetsAt - now))));
           }
