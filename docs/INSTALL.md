@@ -53,7 +53,7 @@ dsh --profile web --dump-config | grep -A2 bottom-info-bar
 
 信息栏会自动检测当前模型所属模式：**订阅制**（Codex / OpenCode Go）显示三窗口额度，**余额制**（DeepSeek 等）显示余额。订阅额度数据源：
 
-- **Codex**：读取 `~/.codex/auth.json`（Codex CLI 登录态），无需额外配置；token 仅在本机内存中使用，不落盘、不记录。
+- **Codex / ChatGPT**：信息栏**只读** `~/.codex/auth.json` 中的 access_token 查询额度（`chatgpt.com/backend-api/wham/usage`），token 仅在本机内存中使用，不落盘、不记录、不续期、不写回。令牌的**绑定 / 续期**由独立插件 [**dsh-chatgpt-subscription**](https://github.com/songoao25)（独立仓库）负责——安装并绑定后，本信息栏即可显示订阅额度；令牌缺失或失效时信息栏显示「未绑定 / 重新绑定」引导。
 - **OpenCode Go**：在 **设置 → 模型** 配置 `OPENCODE_GO_API_KEY`（或先用 opencode CLI 登录其订阅，写入 `~/.local/share/opencode/auth.json` 的 `opencode-go` 条目）。未配置时信息栏显示"未配置 OpenCode Go"引导，不报错。
 
 ## 更新版本

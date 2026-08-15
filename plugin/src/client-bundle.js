@@ -413,12 +413,14 @@ module.exports = {
           return w && typeof w.usedPercent === 'number';
         });
         const hasData = windows.length > 0;
-        // 错误分支：无旧数据时给出明确引导 / 错误文案；有旧数据时走下方渲染并附"刷新失败"标记
+        // 错误分支：无旧数据时给出明确引导 / 错误文案；有旧数据时走下方渲染并附"刷新失败"标记。
+        // no-key（无令牌/缺 access_token）与 auth（令牌失效 401）→ 统一"未绑定/重新绑定"引导——
+        // 令牌由独立插件 dsh-chatgpt-subscription 维护，本插件只读令牌显示额度，不自行绑定/续期
         if (sub.error && !hasData) {
-          if (sub.error.kind === 'no-key') {
+          if (sub.error.kind === 'no-key' || sub.error.kind === 'auth') {
             const hint = sub.source === 'opencode-go'
               ? '未配置 OpenCode Go → 设置→模型 填写 OPENCODE_GO_API_KEY'
-              : '未找到 Codex 登录凭证（~/.codex/auth.json）';
+              : '未绑定 ChatGPT 订阅 → 安装 dsh-chatgpt-subscription 插件授权绑定';
             groups.push(React.createElement('span', { className: 'bi-err', key: 'subnokey' }, hint));
           } else {
             groups.push(React.createElement('span', { className: 'bi-err', key: 'suberr' }, '订阅额度获取失败：' + sub.error.message));
