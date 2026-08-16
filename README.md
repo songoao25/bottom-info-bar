@@ -7,7 +7,7 @@
 [![Last commit](https://img.shields.io/github/last-commit/songoao25/dsh-bottom-info-bar)](https://github.com/songoao25/dsh-bottom-info-bar)
 [![CI](https://img.shields.io/github/actions/workflow/status/songoao25/dsh-bottom-info-bar/ci.yml)](https://github.com/songoao25/dsh-bottom-info-bar/actions)
 
-A single-line information bar for [DeepSeek Harness](https://github.com/deepseek-ai) that replaces the native stats row under the composer with **provider & model, live balance, peak/off-peak pricing, and real spend** — all in one glance. Install once; it activates automatically on every launch.
+The **best-adapted bottom info bar for [DeepSeek Harness](https://github.com/deepseek-ai)**, and a drop-in replacement for the native stats row under the composer. It shows **live balance** and **subscription quota** (ChatGPT & OpenCode Go) at a glance, alongside provider & model, peak/off-peak pricing, and real spend — **smart and concise**, **conflict-free**, and **native in look and feel**: it auto-detects the billing mode, replaces the native row instead of duplicating it, and matches the model switcher exactly. Install once; it activates automatically on every launch.
 
 ## Features
 

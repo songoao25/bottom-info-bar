@@ -7,7 +7,7 @@
 [![Last commit](https://img.shields.io/github/last-commit/songoao25/dsh-bottom-info-bar)](https://github.com/songoao25/dsh-bottom-info-bar)
 [![CI](https://img.shields.io/github/actions/workflow/status/songoao25/dsh-bottom-info-bar/ci.yml)](https://github.com/songoao25/dsh-bottom-info-bar/actions)
 
-为 [DeepSeek Harness](https://github.com/deepseek-ai) 设计的单行信息栏：替换对话输入框下方的原生统计栏，把「**服务商与模型 + 实时余额 + 峰谷定价 + 真实花费**」合并为一条，一眼看清。安装一次，每次启动自动生效。
+**DeepSeek Harness 适配度最高的底部信息栏**，也是原生统计栏的一体替换：单行展示**实时余额**与**订阅额度**（ChatGPT & OpenCode Go），以及服务商与模型、峰谷定价、真实花费，一眼看清。**智能简洁**——自动识别余额制/订阅制、严格单行、完整/简洁两态切换；**不冲突**——替换原生栏而非叠加，两种计费模式互斥绝不重叠；**和原生一样**——模型名/服务商名与模型切换器完全一致、布局与原生统计栏一致。安装一次，每次启动自动生效。
 
 ## 特性
 
