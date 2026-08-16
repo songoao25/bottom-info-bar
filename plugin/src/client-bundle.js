@@ -429,15 +429,17 @@ module.exports = {
         }
         // 窗口缺失（如 Codex 无 5 小时窗口）→ 跳过窗口组，不占位、不报错
         if (hasData) {
-          // 简洁模式下选择"最紧迫且有重置时刻"的窗口：
-          // ① 优先 5 小时窗口（若存在且有重置时刻）
-          // ② 否则从有重置时刻的窗口中选最紧者（已用百分比最高）
-          const fiveHourWithReset = windows.find(function (w) { return w.key === 'five_hour' && w.resetsAt; });
+          // 简洁模式下选择"时间最短且有重置时刻"的窗口（刷新最快，用户最需关注）：
+          // 优先级：5小时 > 周 > 月（按窗口时长排序，而非已用百分比）
+          const windowPriority = { five_hour: 1, seven_day: 2, monthly: 3 };
           const windowsWithReset = windows.filter(function (w) { return w.resetsAt; });
-          const tightWithReset = windowsWithReset.length > 0
-            ? windowsWithReset.slice().sort(function (a, b) { return b.usedPercent - a.usedPercent; })[0]
+          const displayWindow = windowsWithReset.length > 0
+            ? windowsWithReset.slice().sort(function (a, b) {
+                const pa = windowPriority[a.key] || 99;
+                const pb = windowPriority[b.key] || 99;
+                return pa - pb;
+              })[0]
             : null;
-          const displayWindow = fiveHourWithReset || tightWithReset;
           
           // 完整模式显示全部窗口；简洁模式只显示选中的那个窗口
           const visible = full ? windows : (displayWindow ? [displayWindow] : []);
