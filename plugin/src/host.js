@@ -19,7 +19,8 @@ const SUBSCRIPTION_PROVIDERS = ['codex', 'chatgpt', 'opencode-go', 'opencode', '
 // 订阅窗口时长（秒）：5 小时 / 7 天 / 30 天；映射带 5% 容差（接口值可能微调）
 const WINDOW_SECONDS = { five_hour: 18000, seven_day: 604800, monthly: 2592000 }
 const WINDOW_LABELS = { five_hour: '5小时', seven_day: '周', monthly: '月' }
-const WINDOW_ALERT_PERCENT = 90 // 任一窗口已用百分比 ≥ 该值 → 客户端红色 ⚠ 预警
+// 订阅窗口预警阈值由客户端本判定（剩余 ≤20% → 琥珀 ⚠，见 client 的 LOW_QUOTA_PERCENT）；
+// host 仅下发额度/重置数据，不重复判定，故移除原 WINDOW_ALERT_PERCENT=90 的死常量。
 const CODEX_PLAN_NAMES = { plus: 'ChatGPT Plus', pro: 'ChatGPT Pro', team: 'ChatGPT Team', enterprise: 'ChatGPT Enterprise' }
 const SUBSCRIPTION_REFRESH_MS = 60000 // 订阅额度快照刷新周期（与余额一致）
 const SUBSCRIPTION_RETRY_BACKOFF_MS = 60000 // 订阅刷新失败后退避期：期内不重试（减少对未公开 wham 接口的请求 + 避免"刷新失败"提示闪烁）
