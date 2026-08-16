@@ -91,11 +91,10 @@ All spend data lives in the plugin's own data directory, isolated from other plu
 ```bash
 cd dsh-bottom-info-bar
 ./uninstall.sh                       # remove the plugin only
-./uninstall.sh --purge-codex         # also purge the ChatGPT subscription (Codex) config & credential
 # or: dsh plugin --profile web remove dsh-bottom-info-bar
 ```
 
-`--purge-codex` additionally removes the `llm-pi-ai.providers.openai-codex` block from `~/.dsh/settings.yaml` (backed up first) and the `OPENAI_CODEX_API_KEY` line from `~/.dsh/.credentials.yaml`, keeping everything else intact. This is a **legacy cleanup** for users who tried the v1.2.0 subscription bridge trial — the current plugin no longer registers that route or credential. Running DSH processes keep config/credentials in memory — **restart `dsh web`** for the purge to take effect. `~/.codex/auth.json` itself is not deleted (it may also be used by the Codex CLI).
+ChatGPT subscription (binding & token maintenance) is owned by the separate plugin `dsh-chatgpt-subscription`; uninstalling this info bar does not touch it.
 
 After restarting, the native stats row returns automatically with no residue (the ledger file under `~/.dsh/dsh-bottom-info-bar/` is your data and is kept; remove it manually if you want to reset the statistics).
 

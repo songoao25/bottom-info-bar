@@ -22,7 +22,7 @@
 
 ### Changed
 
-- **ChatGPT 订阅模型接入剥离（移除 v1.2.0 绑定代码）**：dsh-bottom-info-bar 回归纯显示——OAuth 绑定 / 设置页「ChatGPT 订阅」/ 令牌续期与写回 / `openai-codex` 模型路由注册 / 凭据注入 / 绑定标记 全部移除，由独立插件 **dsh-chatgpt-subscription** 提供（该插件负责绑定并把令牌写入 `~/.codex/auth.json`，本插件只读令牌显示额度）；`uninstall.sh --purge-codex` 保留，用于清理 v1.2.0 试用期残留的 `llm-pi-ai.providers.openai-codex` 配置与 `OPENAI_CODEX_API_KEY` 凭据
+- **ChatGPT 订阅模型接入剥离（移除 v1.2.0 绑定代码）**：dsh-bottom-info-bar 回归纯显示——OAuth 绑定 / 设置页「ChatGPT 订阅」/ 令牌续期与写回 / `openai-codex` 模型路由注册 / 凭据注入 / 绑定标记 全部移除，由独立插件 **dsh-chatgpt-subscription** 提供（该插件负责绑定并把令牌写入 `~/.codex/auth.json`，本插件只读令牌显示额度）；v1.2.0 遗留的 `uninstall.sh --purge-codex` 清理工具已一并移除（其清理对象已不存在，且为避免误触新插件的活体配置）
 - **提供商显示名 Codex → ChatGPT**：Codex 与 ChatGPT 已合并，信息栏订阅服务名统一显示 ChatGPT（`codex` 保持 Codex）
 - **额度显示改为剩余百分比**：订阅窗口显示 **剩余 = 100 − 已用**（如 `5h 91% · 周 56% · 月 60%`，紧凑标签 + 数值加粗）；hover 浮窗明确写「剩余 xx%（已用 xx%）· 重置 …· 距重置 …」；预警触发条件不变（已用 ≥90% = 剩余 ≤10%），告急文案同步改为「剩余 ≤10%」
 

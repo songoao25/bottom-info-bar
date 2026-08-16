@@ -27,7 +27,6 @@ const cases = [
   ['test-density-toggle（host.js + client-bundle.js）', ['tests/test-density-toggle.js'], join(root), process.execPath],
   ['test-spend-accounting（host.js）', ['tests/test-spend-accounting.js'], join(root), process.execPath],
   ['test-dual-mode（host.js 双模式逻辑 + client 订阅渲染）', ['tests/test-dual-mode.js'], join(root), process.execPath],
-  ['test-uninstall-purge（uninstall.sh --purge-codex 清理逻辑）', ['tests/test-uninstall-purge.sh'], join(root), 'bash'],
   ['check-host（host.js）', ['tests/check-host.js', HOST], join(root), process.execPath],
 ]
 

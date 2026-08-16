@@ -91,11 +91,10 @@ dsh plugin --profile web add /path/to/dsh-bottom-info-bar/plugin
 ```bash
 cd dsh-bottom-info-bar
 ./uninstall.sh                        # 仅卸载插件
-./uninstall.sh --purge-codex          # 卸载并清理 ChatGPT 订阅（Codex）配置与凭据
 # 或：dsh plugin --profile web remove dsh-bottom-info-bar
 ```
 
-`--purge-codex` 额外移除 `~/.dsh/settings.yaml` 中的 `llm-pi-ai.providers.openai-codex` 段（修改前自动备份）与 `~/.dsh/.credentials.yaml` 中的 `OPENAI_CODEX_API_KEY` 行，其余配置原样保留。这是**遗留清理**（给试用过 v1.2.0 订阅桥接的用户）——当前插件已不再注册该路由与凭据。运行中的 DSH 把配置/凭据保存在内存里——**请重启 `dsh web` 使清理生效**。`~/.codex/auth.json` 本身不会删除（codex CLI 可能也在使用）。
+ChatGPT 订阅（绑定与令牌维护）由独立插件 `dsh-chatgpt-subscription` 负责，卸载本信息栏插件不会触碰它。
 
 重启后原生统计栏自动恢复，插件无残留（记账数据文件保留于 `~/.dsh/dsh-bottom-info-bar/`，如需重置统计请手动删除）。
 
