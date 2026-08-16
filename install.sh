@@ -21,11 +21,11 @@ command -v pnpm >/dev/null 2>&1 || { echo "错误：未找到 pnpm（安装：np
 echo "==> 构建插件产物（plugin/lib/ 由 build 生成，不入 git）"
 node "$PLUGIN_DIR/scripts/build.mjs" || { echo "错误：插件构建失败"; exit 1; }
 
-echo "==> 安装 bottom-info-bar 到 profile '$PROFILE'"
+echo "==> 安装 dsh-bottom-info-bar 到 profile '$PROFILE'"
 dsh plugin --profile "$PROFILE" add "$PLUGIN_DIR"
 
 echo
 echo "✔ 安装完成。"
 echo "  下一步：重启 DeepSeek Harness（dsh $PROFILE）后，底部信息栏自动出现，无需手动加载。"
-echo "  验证：dsh --profile $PROFILE --dump-config | grep bottom-info-bar"
+echo "  验证：dsh --profile $PROFILE --dump-config | grep dsh-bottom-info-bar"
 echo "  卸载：./uninstall.sh --profile $PROFILE"

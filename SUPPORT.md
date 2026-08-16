@@ -4,7 +4,7 @@
 
 - **安装问题**：查看 [README](README.zh-CN.md) 的「安装」与「常见问题」章节；
 - **使用问题**：README 覆盖了主要用法；
-- **Bug 报告**：到 [Issues](https://github.com/songoao25/bottom-info-bar/issues) 提交，附上复现步骤与环境信息。
+- **Bug 报告**：到 [Issues](https://github.com/songoao25/dsh-bottom-info-bar/issues) 提交，附上复现步骤与环境信息。
 
 ## 文档
 

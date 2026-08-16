@@ -1,16 +1,16 @@
 // Bottom Info Bar（底部信息栏插件）— host half（静态 bundle 形态）
 // 业务：余额真实 API / 峰谷定价 / llm/stream 记账 / 会话聚合 / 显示名识别 / 订阅额度显示
-// RPC：webServer HTTP 路由（GET/POST /_dsh/bottom-info-bar/<method>，JSON 进出，同源防护）
+// RPC：webServer HTTP 路由（GET/POST /_dsh/dsh-bottom-info-bar/<method>，JSON 进出，同源防护）
 // 依赖：inject ['credentials', 'timer']；可选服务 webServer（ctx.inject 等待）
-// 记账持久化：usageRecords 落盘 ~/.dsh/bottom-info-bar/usage-records.json（可用环境变量
-// BOTTOM_INFO_BAR_DATA_DIR 覆盖目录），重启后真实累计花费不丢失。
+// 记账持久化：usageRecords 落盘 ~/.dsh/dsh-bottom-info-bar/usage-records.json（可用环境变量
+// DSH_BOTTOM_INFO_BAR_DATA_DIR 覆盖目录），重启后真实累计花费不丢失。
 // 订阅额度：本插件只读令牌（~/.codex/auth.json / opencode auth.json）查询额度、仅作显示；
 // 令牌的绑定/续期/写回由独立插件 dsh-chatgpt-subscription 维护，本插件不写回、不续期、不注入凭据。
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-const DATA_DIR = process.env.BOTTOM_INFO_BAR_DATA_DIR || join(homedir(), '.dsh', 'bottom-info-bar')
+const DATA_DIR = process.env.DSH_BOTTOM_INFO_BAR_DATA_DIR || join(homedir(), '.dsh', 'dsh-bottom-info-bar')
 const DATA_FILE = join(DATA_DIR, 'usage-records.json')
 
 // ---------- 双模式（余额制 / 订阅制）配置 ----------
@@ -25,8 +25,8 @@ const SUBSCRIPTION_REFRESH_MS = 60000 // 订阅额度快照刷新周期（与余
 const SUBSCRIPTION_RETRY_BACKOFF_MS = 60000 // 订阅刷新失败后退避期：期内不重试（减少对未公开 wham 接口的请求 + 避免"刷新失败"提示闪烁）
 // 订阅源 auth 文件路径（可用环境变量覆盖——测试隔离用，避免测试误读真实登录态）；
 // 本插件只读令牌查询额度，令牌的绑定/续期由独立插件 dsh-chatgpt-subscription 维护
-const CODEX_AUTH_FILE = process.env.BOTTOM_INFO_BAR_CODEX_AUTH || join(homedir(), '.codex', 'auth.json')
-const OPENCODE_AUTH_FILE = process.env.BOTTOM_INFO_BAR_OPENCODE_AUTH || join(homedir(), '.local', 'share', 'opencode', 'auth.json')
+const CODEX_AUTH_FILE = process.env.DSH_BOTTOM_INFO_BAR_CODEX_AUTH || join(homedir(), '.codex', 'auth.json')
+const OPENCODE_AUTH_FILE = process.env.DSH_BOTTOM_INFO_BAR_OPENCODE_AUTH || join(homedir(), '.local', 'share', 'opencode', 'auth.json')
 
 // ---------- 双模式纯逻辑（模式检测 / 窗口映射 / 响应解析；单测直接提取） ----------
 
@@ -689,7 +689,7 @@ export default {
         writeFileSync(tmp, JSON.stringify(usageRecords), { mode: 0o600 });
         renameSync(tmp, DATA_FILE);
         dirty = false; // 写盘成功后才清除脏标记：失败时保留，卸载冲刷可重试
-      } catch (err) { /* 落盘失败不影响主流程；保留 dirty，下次记账/卸载时重试 */ console.warn('[bottom-info-bar] 记账落盘失败', String((err && err.message) || err)); }
+      } catch (err) { /* 落盘失败不影响主流程；保留 dirty，下次记账/卸载时重试 */ console.warn('[dsh-bottom-info-bar] 记账落盘失败', String((err && err.message) || err)); }
     }
 
     // 防抖落盘：记账后 4s 内合并写入；插件卸载时立即冲刷
@@ -724,7 +724,7 @@ export default {
       try {
         stream = await next();
       } catch (err) {
-        console.warn('[bottom-info-bar] llm/stream 获取失败，本次不记账', String((err && err.message) || err));
+        console.warn('[dsh-bottom-info-bar] llm/stream 获取失败，本次不记账', String((err && err.message) || err));
         return;
       }
       try {
@@ -1087,7 +1087,7 @@ export default {
     }
 
     // ---------- RPC 路由（webServer HTTP，替代动态沙箱 harness.handle） ----------
-    const ROUTE_PREFIX = '/_dsh/bottom-info-bar';
+    const ROUTE_PREFIX = '/_dsh/dsh-bottom-info-bar';
     const ROUTES = {
       getBalanceSnapshot: function (args) {
         const pid = args && typeof args === 'object' && args.provider ? String(args.provider) : '';
@@ -1232,7 +1232,7 @@ export default {
           },
         });
         return function () { dispose(); };
-      }, 'bottom-info-bar: Web routes');
+      }, 'dsh-bottom-info-bar: Web routes');
     });
 
     // ---------- 启动即刷 + 60s 定时刷新 ----------

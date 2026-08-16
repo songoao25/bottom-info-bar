@@ -28,7 +28,7 @@ Authorization: Bearer <API_KEY>
     "weekly":   { "status": "ok", "percent": 12, "resetsAt": "..." },
     "monthly":  { "status": "ok", "percent": 6,  "resetsAt": "..." } } }
 ```
-- 接口**未写入公开文档**，可能变化 → 需防御性解析（bottom-info-bar 现有"失败保留旧快照"模式天然适配）。
+- 接口**未写入公开文档**，可能变化 → 需防御性解析（dsh-bottom-info-bar 现有"失败保留旧快照"模式天然适配）。
 - API Key：Anthropic 兼容格式 `sk-opencode-…`；来源 = DSH credentials（`OPENCODE_GO_API_KEY`）或 `~/.local/share/opencode/auth.json` 的 `opencode-go` 条目。
 
 ### 3. 现成参考实现
@@ -42,7 +42,7 @@ Authorization: Bearer <API_KEY>
 
 ## 与本项目现有架构的匹配度
 
-bottom-info-bar 现有架构（PROVIDERS 适配器 + balance 快照 60s 刷新 + 失败保留旧快照 + RPC 下发 + 记账落盘）与 OpenCode Go 接入点高度吻合：
+dsh-bottom-info-bar 现有架构（PROVIDERS 适配器 + balance 快照 60s 刷新 + 失败保留旧快照 + RPC 下发 + 记账落盘）与 OpenCode Go 接入点高度吻合：
 
 | 现有机制 | OpenCode Go 接入 |
 | --- | --- |

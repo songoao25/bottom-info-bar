@@ -2,10 +2,10 @@
 
 **English** | [**中文**](README.zh-CN.md)
 
-[![License: MIT](https://img.shields.io/github/license/songoao25/bottom-info-bar)](https://github.com/songoao25/bottom-info-bar/blob/main/LICENSE)
-[![Release](https://img.shields.io/github/v/release/songoao25/bottom-info-bar)](https://github.com/songoao25/bottom-info-bar/releases)
-[![Last commit](https://img.shields.io/github/last-commit/songoao25/bottom-info-bar)](https://github.com/songoao25/bottom-info-bar)
-[![CI](https://img.shields.io/github/actions/workflow/status/songoao25/bottom-info-bar/ci.yml)](https://github.com/songoao25/bottom-info-bar/actions)
+[![License: MIT](https://img.shields.io/github/license/songoao25/dsh-bottom-info-bar)](https://github.com/songoao25/dsh-bottom-info-bar/blob/main/LICENSE)
+[![Release](https://img.shields.io/github/v/release/songoao25/dsh-bottom-info-bar)](https://github.com/songoao25/dsh-bottom-info-bar/releases)
+[![Last commit](https://img.shields.io/github/last-commit/songoao25/dsh-bottom-info-bar)](https://github.com/songoao25/dsh-bottom-info-bar)
+[![CI](https://img.shields.io/github/actions/workflow/status/songoao25/dsh-bottom-info-bar/ci.yml)](https://github.com/songoao25/dsh-bottom-info-bar/actions)
 
 A single-line information bar for [DeepSeek Harness](https://github.com/deepseek-ai) that replaces the native stats row under the composer with **provider & model, live balance, peak/off-peak pricing, and real spend** — all in one glance. Install once; it activates automatically on every launch.
 
@@ -35,16 +35,16 @@ A single-line information bar for [DeepSeek Harness](https://github.com/deepseek
 ### Option 1 — One-command script (recommended)
 
 ```bash
-git clone https://github.com/songoao25/bottom-info-bar.git
-cd bottom-info-bar
+git clone https://github.com/songoao25/dsh-bottom-info-bar.git
+cd dsh-bottom-info-bar
 ./install.sh                # installs to the "web" profile; use --profile <name> to override
 ```
 
 ### Option 2 — dsh plugin command
 
 ```bash
-git clone https://github.com/songoao25/bottom-info-bar.git
-dsh plugin --profile web add /path/to/bottom-info-bar/plugin
+git clone https://github.com/songoao25/dsh-bottom-info-bar.git
+dsh plugin --profile web add /path/to/dsh-bottom-info-bar/plugin
 ```
 
 > **Restart `dsh web` after installing.** Plugins are composed when the host process starts; a page refresh alone is not enough.
@@ -75,12 +75,12 @@ For detailed installation, troubleshooting, and upgrade instructions, see [docs/
 All spend data lives in the plugin's own data directory, isolated from other plugins and DSH configuration:
 
 ```
-~/.dsh/bottom-info-bar/
+~/.dsh/dsh-bottom-info-bar/
 └── usage-records.json      # per-request usage ledger (persisted across restarts)
 ```
 
-- **Location**: `~/.dsh/bottom-info-bar/` (directory mode `0700`, file mode `0600` — readable only by the current user).
-- **Override**: set the environment variable `BOTTOM_INFO_BAR_DATA_DIR` to relocate the whole data directory (e.g. an external drive or a synced folder).
+- **Location**: `~/.dsh/dsh-bottom-info-bar/` (directory mode `0700`, file mode `0600` — readable only by the current user).
+- **Override**: set the environment variable `DSH_BOTTOM_INFO_BAR_DATA_DIR` to relocate the whole data directory (e.g. an external drive or a synced folder).
 - **Contents**: one entry per `llm/stream` request (`ts / model / provider / sessionId / input / cacheRead / cacheWrite / output`). No conversation content and no API keys are ever stored.
 - **Retention**: capped at 3,000 entries (oldest first).
 - **Spend scope**: aggregated in the active provider's currency (CNY for DeepSeek, USD for the OpenAI reference prices); records in other currencies are not mixed in. Models absent from the pricing table are excluded.
@@ -89,15 +89,15 @@ All spend data lives in the plugin's own data directory, isolated from other plu
 ## Uninstall
 
 ```bash
-cd bottom-info-bar
+cd dsh-bottom-info-bar
 ./uninstall.sh                       # remove the plugin only
 ./uninstall.sh --purge-codex         # also purge the ChatGPT subscription (Codex) config & credential
-# or: dsh plugin --profile web remove bottom-info-bar
+# or: dsh plugin --profile web remove dsh-bottom-info-bar
 ```
 
 `--purge-codex` additionally removes the `llm-pi-ai.providers.openai-codex` block from `~/.dsh/settings.yaml` (backed up first) and the `OPENAI_CODEX_API_KEY` line from `~/.dsh/.credentials.yaml`, keeping everything else intact. This is a **legacy cleanup** for users who tried the v1.2.0 subscription bridge trial — the current plugin no longer registers that route or credential. Running DSH processes keep config/credentials in memory — **restart `dsh web`** for the purge to take effect. `~/.codex/auth.json` itself is not deleted (it may also be used by the Codex CLI).
 
-After restarting, the native stats row returns automatically with no residue (the ledger file under `~/.dsh/bottom-info-bar/` is your data and is kept; remove it manually if you want to reset the statistics).
+After restarting, the native stats row returns automatically with no residue (the ledger file under `~/.dsh/dsh-bottom-info-bar/` is your data and is kept; remove it manually if you want to reset the statistics).
 
 ## FAQ
 

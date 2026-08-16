@@ -1,4 +1,4 @@
-# bottom-info-bar
+# dsh-bottom-info-bar
 
 DeepSeek Harness 底部信息栏插件（静态 bundle 形态）。安装一次，每次打开 DSH 自动生效。
 

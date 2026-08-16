@@ -13,9 +13,9 @@ const { pathToFileURL } = require('url');
 
 // 测试隔离：数据目录与订阅源凭证全部指向临时目录（绝不读真实登录态/发网络请求）
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bib-display-'));
-process.env.BOTTOM_INFO_BAR_DATA_DIR = path.join(tmpRoot, 'data');
-process.env.BOTTOM_INFO_BAR_CODEX_AUTH = path.join(tmpRoot, 'no-auth.json');
-process.env.BOTTOM_INFO_BAR_OPENCODE_AUTH = path.join(tmpRoot, 'no-opencode.json');
+process.env.DSH_BOTTOM_INFO_BAR_DATA_DIR = path.join(tmpRoot, 'data');
+process.env.DSH_BOTTOM_INFO_BAR_CODEX_AUTH = path.join(tmpRoot, 'no-auth.json');
+process.env.DSH_BOTTOM_INFO_BAR_OPENCODE_AUTH = path.join(tmpRoot, 'no-opencode.json');
 
 const clientSrc = fs.readFileSync(__dirname + '/../plugin/src/client-bundle.js', 'utf8');
 
@@ -144,7 +144,7 @@ const settle = () => new Promise((r) => setTimeout(r, 40));
     const env = makeStubCtx({ catalog: catalog });
     const disposer = plugin.apply(env.ctx);
     await settle();
-    const r = await invoke(env.getRoute(), '/_dsh/bottom-info-bar/getPricing', 'GET');
+    const r = await invoke(env.getRoute(), '/_dsh/dsh-bottom-info-bar/getPricing', 'GET');
     check('DSH 目录名优先：providerDisplay = DeepSeek（listProviders.name）', r.payload && r.payload.providerDisplay, 'DeepSeek');
     check('DSH 目录名优先：modelDisplay = DeepSeek-V4-Flash（listModels.name，与切换器一致）', r.payload && r.payload.modelDisplay, 'DeepSeek-V4-Flash');
     check('DSH 目录名优先：目录接口确实被调用', env.calls.listModels >= 1 && env.calls.listProviders >= 1, true);
@@ -156,7 +156,7 @@ const settle = () => new Promise((r) => setTimeout(r, 40));
     const env = makeStubCtx({ noLlm: true });
     const disposer = plugin.apply(env.ctx);
     await settle();
-    const r = await invoke(env.getRoute(), '/_dsh/bottom-info-bar/getPricing', 'GET');
+    const r = await invoke(env.getRoute(), '/_dsh/dsh-bottom-info-bar/getPricing', 'GET');
     check('无 llm：modelDisplay 回退原始 model id', r.payload && r.payload.modelDisplay, 'deepseek-v4-flash');
     check('无 llm：providerDisplay 回退静态映射（deepseek-official → DeepSeek）', r.payload && r.payload.providerDisplay, 'DeepSeek');
     check('无 llm：目录接口零调用', env.calls.listModels === 0 && env.calls.listProviders === 0, true);
@@ -172,7 +172,7 @@ const settle = () => new Promise((r) => setTimeout(r, 40));
     const env = makeStubCtx({ catalog: catalog, model: 'my-custom-model' });
     const disposer = plugin.apply(env.ctx);
     await settle();
-    const r = await invoke(env.getRoute(), '/_dsh/bottom-info-bar/getPricing', 'GET');
+    const r = await invoke(env.getRoute(), '/_dsh/dsh-bottom-info-bar/getPricing', 'GET');
     check('目录外未知模型 → 回退原始 model id', r.payload && r.payload.modelDisplay, 'my-custom-model');
     disposer();
   }
@@ -187,7 +187,7 @@ const settle = () => new Promise((r) => setTimeout(r, 40));
     });
     const disposer = plugin.apply(env.ctx);
     await settle();
-    const before = await invoke(env.getRoute(), '/_dsh/bottom-info-bar/getPricing', 'GET');
+    const before = await invoke(env.getRoute(), '/_dsh/dsh-bottom-info-bar/getPricing', 'GET');
     check('adapters-updated 前：modelDisplay = DeepSeek-V4-Flash', before.payload && before.payload.modelDisplay, 'DeepSeek-V4-Flash');
     // 模拟模型改名：目录变更（如切换器改显示名）→ 触发 llm/adapters-updated
     env.catalogRef.current = {
@@ -198,7 +198,7 @@ const settle = () => new Promise((r) => setTimeout(r, 40));
     check('adapters-updated 监听已注册', typeof updateFn, 'function');
     if (typeof updateFn === 'function') updateFn();
     await settle();
-    const after = await invoke(env.getRoute(), '/_dsh/bottom-info-bar/getPricing', 'GET');
+    const after = await invoke(env.getRoute(), '/_dsh/dsh-bottom-info-bar/getPricing', 'GET');
     check('adapters-updated 后：modelDisplay 立即反映新目录名', after.payload && after.payload.modelDisplay, 'DeepSeek-V4-Flash-Pro');
     disposer();
   }
@@ -211,11 +211,11 @@ const settle = () => new Promise((r) => setTimeout(r, 40));
     });
     const disposer = plugin.apply(env.ctx);
     await settle();
-    const r1 = await invoke(env.getRoute(), '/_dsh/bottom-info-bar/getPricing', 'GET');
+    const r1 = await invoke(env.getRoute(), '/_dsh/dsh-bottom-info-bar/getPricing', 'GET');
     check('空模型 → modelSelection 兜底默认模型（deepseek-v4-flash）', r1.payload && r1.payload.modelDisplay, 'deepseek-v4-flash');
     env.selection.model = 'x';
     env.selection.provider = 'zzz';
-    const r2 = await invoke(env.getRoute(), '/_dsh/bottom-info-bar/getPricing', 'GET');
+    const r2 = await invoke(env.getRoute(), '/_dsh/dsh-bottom-info-bar/getPricing', 'GET');
     check('未知服务商（无缓存无映射）→ 大写首字母回退', r2.payload && r2.payload.providerDisplay, 'Zzz');
     disposer();
   }

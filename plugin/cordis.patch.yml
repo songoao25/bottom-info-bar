@@ -1,6 +1,6 @@
-# bottom-info-bar bundle patch: mounts the plugin into a profile layer stack.
-# The plugin row id is 'bottom-info-bar' — users may override its behavior in
+# dsh-bottom-info-bar bundle patch: mounts the plugin into a profile layer stack.
+# The plugin row id is 'dsh-bottom-info-bar' — users may override its behavior in
 # their profile's cordis.patch.yml with a row carrying the same id.
 - insert:
-    - id: bottom-info-bar
-      name: 'bottom-info-bar'
+    - id: dsh-bottom-info-bar
+      name: 'dsh-bottom-info-bar'

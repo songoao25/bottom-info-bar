@@ -20,8 +20,8 @@ done
 command -v dsh >/dev/null 2>&1 || { echo "错误：未找到 dsh CLI"; exit 1; }
 command -v pnpm >/dev/null 2>&1 || { echo "错误：未找到 pnpm"; exit 1; }
 
-echo "==> 从 profile '$PROFILE' 卸载 bottom-info-bar"
-if ! dsh plugin --profile "$PROFILE" remove bottom-info-bar; then
+echo "==> 从 profile '$PROFILE' 卸载 dsh-bottom-info-bar"
+if ! dsh plugin --profile "$PROFILE" remove dsh-bottom-info-bar; then
   echo "  ⚠ 插件移除失败（可能已卸载或 profile 不存在）"
   [[ "$PURGE_CODEX" == 1 ]] || exit 1
 fi

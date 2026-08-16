@@ -22,7 +22,7 @@
 
 ### Changed
 
-- **ChatGPT 订阅模型接入剥离（移除 v1.2.0 绑定代码）**：bottom-info-bar 回归纯显示——OAuth 绑定 / 设置页「ChatGPT 订阅」/ 令牌续期与写回 / `openai-codex` 模型路由注册 / 凭据注入 / 绑定标记 全部移除，由独立插件 **dsh-chatgpt-subscription** 提供（该插件负责绑定并把令牌写入 `~/.codex/auth.json`，本插件只读令牌显示额度）；`uninstall.sh --purge-codex` 保留，用于清理 v1.2.0 试用期残留的 `llm-pi-ai.providers.openai-codex` 配置与 `OPENAI_CODEX_API_KEY` 凭据
+- **ChatGPT 订阅模型接入剥离（移除 v1.2.0 绑定代码）**：dsh-bottom-info-bar 回归纯显示——OAuth 绑定 / 设置页「ChatGPT 订阅」/ 令牌续期与写回 / `openai-codex` 模型路由注册 / 凭据注入 / 绑定标记 全部移除，由独立插件 **dsh-chatgpt-subscription** 提供（该插件负责绑定并把令牌写入 `~/.codex/auth.json`，本插件只读令牌显示额度）；`uninstall.sh --purge-codex` 保留，用于清理 v1.2.0 试用期残留的 `llm-pi-ai.providers.openai-codex` 配置与 `OPENAI_CODEX_API_KEY` 凭据
 - **提供商显示名 Codex → ChatGPT**：Codex 与 ChatGPT 已合并，信息栏订阅服务名统一显示 ChatGPT（`codex` 保持 Codex）
 - **额度显示改为剩余百分比**：订阅窗口显示 **剩余 = 100 − 已用**（如 `5h 91% · 周 56% · 月 60%`，紧凑标签 + 数值加粗）；hover 浮窗明确写「剩余 xx%（已用 xx%）· 重置 …· 距重置 …」；预警触发条件不变（已用 ≥90% = 剩余 ≤10%），告急文案同步改为「剩余 ≤10%」
 
@@ -36,7 +36,7 @@
 - **本对话金额归属**：新开对话不再显示上一个会话的花费（客户端多路获取当前会话 ID；宿主对空 / 未命中会话返回 ¥0.000 而非回退最近会话；会话 ID 前缀差异归一化）
 - **回复完成即时更新金额**：会话统计变化时自动刷新，不再等最长 30 秒的轮询间隔
 - **订阅额度刷新失败退避**：wham/usage 偶发失败后记录失败时刻，60s 退避期内（RPC 与周期刷新均）不重试——减少对未公开接口的请求，「刷新失败，显示上次快照」提示不再随每次轮询反复闪烁
-- **测试隔离**：新增环境变量 `BOTTOM_INFO_BAR_CODEX_AUTH` / `BOTTOM_INFO_BAR_OPENCODE_AUTH` 覆盖订阅源凭证文件路径，测试不读取真实登录态、不发真实网络请求
+- **测试隔离**：新增环境变量 `DSH_BOTTOM_INFO_BAR_CODEX_AUTH` / `DSH_BOTTOM_INFO_BAR_OPENCODE_AUTH` 覆盖订阅源凭证文件路径，测试不读取真实登录态、不发真实网络请求
 
 ## [1.0.0] - 2026-08-15
 
@@ -58,4 +58,4 @@
 - **本对话花费始终显示**：新对话 / 对话刚开始（尚无记账）时不再隐藏，显示 `本对话 ¥0.000`；hover 仍可查看持久化的 今天 / 近一月 / 全部
 - **原生统计行**：完整模式下对话刚开始即显示 `0 轮 · 0 步`，不再等第一步完成才出现
 
-[1.0.0]: https://github.com/songoao25/bottom-info-bar/releases/tag/v1.0.0
+[1.0.0]: https://github.com/songoao25/dsh-bottom-info-bar/releases/tag/v1.0.0

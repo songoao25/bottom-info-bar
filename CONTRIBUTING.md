@@ -5,7 +5,7 @@
 ## 如何贡献
 
 ### 报告 Bug
-- 先搜索 [Issues](https://github.com/songoao25/bottom-info-bar/issues) 是否已存在；
+- 先搜索 [Issues](https://github.com/songoao25/dsh-bottom-info-bar/issues) 是否已存在；
 - 新建 Issue 时请包含：复现步骤、期望行为、实际行为、环境信息。
 
 ### 提出新功能

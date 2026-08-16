@@ -1,5 +1,5 @@
 // Bottom Info Bar（底部信息栏插件）— client half（静态 bundle 形态）
-// - host.call(method, args) → fetch POST /_dsh/bottom-info-bar/<method>（JSON）
+// - host.call(method, args) → fetch POST /_dsh/dsh-bottom-info-bar/<method>（JSON）
 // - ctx.interval / ctx.timeout → window.setInterval / window.setTimeout
 // - styles.insert(css) → document 注入 <style>（installStyles）
 // - React 由 bundle 的 require('react') 提供（seed 模块）
@@ -11,7 +11,7 @@
 
 const React = require('react');
 
-const RPC_BASE = '/_dsh/bottom-info-bar';
+const RPC_BASE = '/_dsh/dsh-bottom-info-bar';
 
 // 排版优化（正式版）：完整模式下隐藏"首 token 平均 / tok/s"两个低优先级原生字段，
 // 让原生统计行在 748px 对话宽度下单行放得下；hover 信息浮窗（title）仍显示全部原生信息。
@@ -39,11 +39,11 @@ function rpc(method, args) {
 }
 
 function installStyles() {
-  const id = 'bottom-info-bar';
+  const id = 'dsh-bottom-info-bar';
   const existing = document.querySelector('style[data-plugin-css="' + id + '"]');
   if (existing !== null) return function () {};
   const style = document.createElement('style');
-  style.dataset.plugin = 'bottom-info-bar';
+  style.dataset.plugin = 'dsh-bottom-info-bar';
   style.dataset.pluginCss = id;
   style.textContent = `
       .bi-root { text-align: center; max-width: var(--dsh-chat-content-width); box-sizing: border-box; width: 100%; padding: 4px calc(var(--dsh-composer-side-clearance) + 16px) 0px; margin: 0 auto; display: block; overflow: hidden; font-size: 12px; line-height: 20px; color: var(--dsw-alias-label-tertiary, rgba(128,128,128,0.9)); font-variant-numeric: tabular-nums; cursor: pointer; }
@@ -76,14 +76,14 @@ module.exports = {
       slots = ctx.slots || ctx.get('slots');
     }
     if (slots === undefined) {
-      console.warn('[bottom-info-bar] slots 服务 18s 内未就绪，信息栏未注册');
+      console.warn('[dsh-bottom-info-bar] slots 服务 18s 内未就绪，信息栏未注册');
       return;
     }
 
     ctx.effect(function () {
       const disposeStyles = installStyles();
       return function () { disposeStyles(); };
-    }, 'bottom-info-bar: styles');
+    }, 'dsh-bottom-info-bar: styles');
 
     // ---------- 注册：一体替换（同 id 'stats'） ----------
     let density = 'full';

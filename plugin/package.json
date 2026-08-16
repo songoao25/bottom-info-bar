@@ -1,23 +1,23 @@
 {
-  "name": "bottom-info-bar",
+  "name": "dsh-bottom-info-bar",
   "version": "1.1.0",
   "description": "DeepSeek Harness 底部信息栏插件：替换对话输入框下方的原生统计栏，显示服务商/具体模型、真实余额、高峰(琥珀)/空闲(绿)价与倒计时、本对话·今日·近一月·全部花费。安装一次，每次打开 DSH 自动生效。",
   "keywords": [
     "deepseek",
     "deepseek-harness",
     "dsh",
-    "bottom-info-bar",
+    "dsh-bottom-info-bar",
     "balance",
     "usage",
     "plugin"
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/songoao25/bottom-info-bar.git"
+    "url": "https://github.com/songoao25/dsh-bottom-info-bar.git"
   },
-  "homepage": "https://github.com/songoao25/bottom-info-bar",
+  "homepage": "https://github.com/songoao25/dsh-bottom-info-bar",
   "bugs": {
-    "url": "https://github.com/songoao25/bottom-info-bar/issues"
+    "url": "https://github.com/songoao25/dsh-bottom-info-bar/issues"
   },
   "author": "songoao25",
   "license": "MIT",

@@ -2,10 +2,10 @@
 
 [**English**](README.md) | **中文**
 
-[![License: MIT](https://img.shields.io/github/license/songoao25/bottom-info-bar)](https://github.com/songoao25/bottom-info-bar/blob/main/LICENSE)
-[![Release](https://img.shields.io/github/v/release/songoao25/bottom-info-bar)](https://github.com/songoao25/bottom-info-bar/releases)
-[![Last commit](https://img.shields.io/github/last-commit/songoao25/bottom-info-bar)](https://github.com/songoao25/bottom-info-bar)
-[![CI](https://img.shields.io/github/actions/workflow/status/songoao25/bottom-info-bar/ci.yml)](https://github.com/songoao25/bottom-info-bar/actions)
+[![License: MIT](https://img.shields.io/github/license/songoao25/dsh-bottom-info-bar)](https://github.com/songoao25/dsh-bottom-info-bar/blob/main/LICENSE)
+[![Release](https://img.shields.io/github/v/release/songoao25/dsh-bottom-info-bar)](https://github.com/songoao25/dsh-bottom-info-bar/releases)
+[![Last commit](https://img.shields.io/github/last-commit/songoao25/dsh-bottom-info-bar)](https://github.com/songoao25/dsh-bottom-info-bar)
+[![CI](https://img.shields.io/github/actions/workflow/status/songoao25/dsh-bottom-info-bar/ci.yml)](https://github.com/songoao25/dsh-bottom-info-bar/actions)
 
 为 [DeepSeek Harness](https://github.com/deepseek-ai) 设计的单行信息栏：替换对话输入框下方的原生统计栏，把「**服务商与模型 + 实时余额 + 峰谷定价 + 真实花费**」合并为一条，一眼看清。安装一次，每次启动自动生效。
 
@@ -35,16 +35,16 @@
 ### 方式一：一键脚本（推荐）
 
 ```bash
-git clone https://github.com/songoao25/bottom-info-bar.git
-cd bottom-info-bar
+git clone https://github.com/songoao25/dsh-bottom-info-bar.git
+cd dsh-bottom-info-bar
 ./install.sh                # 默认安装到 web profile；可用 --profile <name> 指定
 ```
 
 ### 方式二：dsh 插件命令
 
 ```bash
-git clone https://github.com/songoao25/bottom-info-bar.git
-dsh plugin --profile web add /path/to/bottom-info-bar/plugin
+git clone https://github.com/songoao25/dsh-bottom-info-bar.git
+dsh plugin --profile web add /path/to/dsh-bottom-info-bar/plugin
 ```
 
 > **安装后需重启 `dsh web`**：插件在宿主进程启动时组合加载，仅刷新页面不足以生效。
@@ -75,12 +75,12 @@ dsh plugin --profile web add /path/to/bottom-info-bar/plugin
 本插件的金额数据独立保存在自己的数据目录，与其他插件 / DSH 配置互不干扰：
 
 ```
-~/.dsh/bottom-info-bar/
+~/.dsh/dsh-bottom-info-bar/
 └── usage-records.json      # 逐请求记账明细（重启不丢失）
 ```
 
-- **位置**：`~/.dsh/bottom-info-bar/`（目录权限 0700、文件权限 0600，仅当前用户可读）
-- **覆盖**：设置环境变量 `BOTTOM_INFO_BAR_DATA_DIR` 可将整个数据目录改到别处（如移动硬盘 / 云同步目录）
+- **位置**：`~/.dsh/dsh-bottom-info-bar/`（目录权限 0700、文件权限 0600，仅当前用户可读）
+- **覆盖**：设置环境变量 `DSH_BOTTOM_INFO_BAR_DATA_DIR` 可将整个数据目录改到别处（如移动硬盘 / 云同步目录）
 - **内容**：每条记录为一次 `llm/stream` 请求的用量（`ts / model / provider / sessionId / input / cacheRead / cacheWrite / output`），**不含任何对话内容与 API Key**
 - **上限**：最多保留 3000 条（按写入顺序裁剪）
 - **花费口径**：按当前服务商币种聚合（DeepSeek 为 CNY，OpenAI 参考价为 USD），跨币种记录不混加；未收录模型不参与花费统计
@@ -89,15 +89,15 @@ dsh plugin --profile web add /path/to/bottom-info-bar/plugin
 ## 卸载
 
 ```bash
-cd bottom-info-bar
+cd dsh-bottom-info-bar
 ./uninstall.sh                        # 仅卸载插件
 ./uninstall.sh --purge-codex          # 卸载并清理 ChatGPT 订阅（Codex）配置与凭据
-# 或：dsh plugin --profile web remove bottom-info-bar
+# 或：dsh plugin --profile web remove dsh-bottom-info-bar
 ```
 
 `--purge-codex` 额外移除 `~/.dsh/settings.yaml` 中的 `llm-pi-ai.providers.openai-codex` 段（修改前自动备份）与 `~/.dsh/.credentials.yaml` 中的 `OPENAI_CODEX_API_KEY` 行，其余配置原样保留。这是**遗留清理**（给试用过 v1.2.0 订阅桥接的用户）——当前插件已不再注册该路由与凭据。运行中的 DSH 把配置/凭据保存在内存里——**请重启 `dsh web` 使清理生效**。`~/.codex/auth.json` 本身不会删除（codex CLI 可能也在使用）。
 
-重启后原生统计栏自动恢复，插件无残留（记账数据文件保留于 `~/.dsh/bottom-info-bar/`，如需重置统计请手动删除）。
+重启后原生统计栏自动恢复，插件无残留（记账数据文件保留于 `~/.dsh/dsh-bottom-info-bar/`，如需重置统计请手动删除）。
 
 ## 常见问题
 
