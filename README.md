@@ -9,6 +9,16 @@
 
 The **best-adapted bottom info bar for [DeepSeek Harness](https://github.com/deepseek-ai)**, and a drop-in replacement for the native stats row under the composer. It shows **live balance** and **subscription quota** (ChatGPT & OpenCode Go) at a glance, alongside provider & model, peak/off-peak pricing, and real spend — **smart and concise**, **conflict-free**, and **native in look and feel**: it auto-detects the billing mode, replaces the native row instead of duplicating it, and matches the model switcher exactly. Install once; it activates automatically on every launch.
 
+## Preview
+
+![Bottom Info Bar preview: ChatGPT subscription, DeepSeek API, and OpenCode Go subscription](/assets/bottom-info-bar-preview.jpeg)
+
+Each row shows the same account in **full view** (left) and **compact view** (right):
+
+- **ChatGPT subscription account** — subscription provider, selected model, weekly quota remaining, and reset countdown.
+- **DeepSeek API connection** — model, live balance, off-peak status, next price-switch countdown, and conversation spend.
+- **OpenCode Go subscription account** — subscription provider, selected model, 5-hour / weekly / monthly quotas in full view, and the nearest reset in compact view.
+
 ## Features
 
 - **Dual-mode billing bar** — Auto-detects whether the active provider is subscription-based (Codex / OpenCode Go) or balance-based. The two modes replace each other, never overlap; balance mode stays exactly as before.
