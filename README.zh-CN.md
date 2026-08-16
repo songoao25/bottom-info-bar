@@ -1,4 +1,4 @@
-# Bottom Info Bar（底部信息栏插件）
+# 底部信息栏插件
 
 [**English**](README.md) | **中文**
 
