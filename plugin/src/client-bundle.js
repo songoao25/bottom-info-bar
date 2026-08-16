@@ -351,7 +351,7 @@ module.exports = {
             alertActive ? React.createElement('span', { className: 'bi-err', title: '余额低于阈值' }, ' ⚠') : null,
           ));
           if (bal.error) {
-            groups.push(React.createElement('span', { className: 'bi-stale', key: 'balerr' }, '⚠ 刷新失败，显示上次快照'));
+            groups.push(React.createElement('span', { className: 'bi-stale', key: 'balerr', title: '余额接口暂时不可用，已保留最近一次成功的数据；60 秒后自动重试' }, '⚠ 刷新失败，显示上次快照'));
           }
         } else if (bal && bal.error) {
           groups.push(React.createElement('span', { className: 'bi-err', key: 'berr' }, '余额获取失败：' + bal.error.message));
@@ -433,10 +433,12 @@ module.exports = {
           const tight = windows.slice().sort(function (a, b) { return b.usedPercent - a.usedPercent; })[0];
           const tightForCountdown = windows.filter(function (w) { return w.resetsAt; })
             .sort(function (a, b) { return b.usedPercent - a.usedPercent; })[0] || null;
-          // compact 密度精简：只显示最紧窗口；hover 明细仍是全部窗口
-          const visible = full ? windows : [tight];
-          // 预警触发条件不变：已用 ≥90%（= 剩余 ≤10%）
-          const alarmWindows = windows.filter(function (w) { return w.usedPercent >= WINDOW_ALERT_PERCENT; });
+          // compact 密度精简：永远优先显示 5 小时窗口（若存在）；hover 明细仍是全部窗口
+          const fiveHour = windows.find(function (w) { return w.key === 'five_hour'; });
+          const visible = full ? windows : (fiveHour ? [fiveHour] : [tight]);
+          // 预警触发条件：已用 ≥80%（= 剩余 ≤20%）→ 琥珀色；否则绿色
+          const LOW_QUOTA_PERCENT = 20;
+          const alarmWindows = windows.filter(function (w) { return w.usedPercent >= (100 - LOW_QUOTA_PERCENT); });
           const titleLines = ['订阅源：' + subscriptionServiceName(state.billingMode && state.billingMode.provider) + (sub.plan ? '（' + sub.plan + '）' : '')]
             .concat(windows.map(function (w) {
               return w.label + '窗口：剩余 ' + remainingPercent(w) + '%（已用 ' + w.usedPercent + '%）'
@@ -446,19 +448,21 @@ module.exports = {
           for (let i = 0; i < visible.length; i++) {
             const w = visible[i];
             if (i > 0) winNodes.push(' · ');
-            winNodes.push(compactWindowLabel(w.key) + ' ', num(remainingPercent(w) + '%'));
+            const remaining = remainingPercent(w);
+            const colorClass = remaining <= LOW_QUOTA_PERCENT ? 'bi-peak' : 'bi-offpeak';
+            winNodes.push(compactWindowLabel(w.key) + ' ', React.createElement('span', { className: colorClass }, num(remaining + '%')));
           }
           groups.push(React.createElement('span', { key: 'subwin', title: titleLines.join('\n') },
             ...winNodes,
             alarmWindows.length > 0
               ? React.createElement('span', {
                   className: 'bi-err', key: 'subalarm',
-                  title: '窗口告急：' + alarmWindows.map(function (w) { return w.label + '窗口剩余 ≤10%'; }).join('、'),
+                  title: '窗口告急：' + alarmWindows.map(function (w) { return w.label + '窗口剩余 ≤20%'; }).join('、'),
                 }, ' ⚠')
               : null,
           ));
           if (sub.error) {
-            groups.push(React.createElement('span', { className: 'bi-stale', key: 'substale' }, '⚠ 刷新失败，显示上次快照'));
+            groups.push(React.createElement('span', { className: 'bi-stale', key: 'substale', title: '订阅接口暂时不可用，已保留最近一次成功的数据；60 秒后自动重试' }, '⚠ 刷新失败，显示上次快照'));
           }
           // 距重置倒计时（最紧窗口，天级格式如 '1d 21h'）
           if (tightForCountdown && tightForCountdown.resetsAt) {

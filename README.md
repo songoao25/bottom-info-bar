@@ -12,7 +12,7 @@ A single-line information bar for [DeepSeek Harness](https://github.com/deepseek
 ## Features
 
 - **Dual-mode billing bar** — Auto-detects whether the active provider is subscription-based (Codex / OpenCode Go) or balance-based. The two modes replace each other, never overlap; balance mode stays exactly as before.
-- **Subscription quota display (ChatGPT & OpenCode Go)** — When the active provider is a subscription service, the bar shows the **subscription service + model** (e.g. `OpenCode Go · V4 Flash`), the **5-hour / weekly / monthly quota remaining** per window (remaining = 100 − used, bold, e.g. `5h 91% · 周 38% · 月 60%`), and a **countdown to the next reset** (e.g. `距重置 1d 21h`), with a ⚠ alert when any window is 90%+ used (≤10% remaining). Quota is pulled from **two subscription sources**:
+- **Subscription quota display (ChatGPT & OpenCode Go)** — When the active provider is a subscription service, the bar shows the **subscription service + model** (e.g. `OpenCode Go · V4 Flash`), the **5-hour / weekly / monthly quota remaining** per window (remaining = 100 − used, bold and color-coded: **green when >20% remaining**, **amber when ≤20%**), and a **countdown to the next reset** (e.g. `距重置 1d 21h`). In compact mode only the 5-hour window is shown; in full mode all three windows appear. A ⚠ alert appears when any window drops to 20% or less remaining. Quota is pulled from **two subscription sources**:
   - **ChatGPT / Codex** — reads your ChatGPT Plus / Pro quota read-only from `~/.codex/auth.json`. Binding, token refresh and the `openai-codex` model route are **not part of this plugin** — install the companion plugin [**dsh-chatgpt-subscription**](https://github.com/songoao25) (separate repo) to bind your ChatGPT account; this bar only reads the token to display quota. Missing/expired token → "not bound / re-bind" hint instead of an error.
   - **OpenCode Go** — reads quota from `opencode.ai/zen/go/v1/usage` via `OPENCODE_GO_API_KEY` (Settings → Models) or the opencode CLI login (`~/.local/share/opencode/auth.json`); missing key → "not configured" hint instead of an error.
   Both sources show the remaining quota and the **reset time** for each of the 5-hour / weekly / monthly windows, so you always know when your quota renews.
@@ -105,10 +105,10 @@ After restarting, the native stats row returns automatically with no residue (th
 |---|---|
 | Bar does not appear after a page refresh | **Restart** `dsh web` (the host process loads plugins) |
 | Balance shows "DEEPSEEK_API_KEY not configured" | Add the key under Settings → Models |
-| Balance shows "⚠ refresh failed, showing last snapshot" | Transient network/key issue; retries automatically after 60 s |
+| Balance shows "⚠ refresh failed, showing last snapshot" | Transient network/key issue; retries automatically after 60 s. The last successful data is kept so the bar never goes blank. **Hover over the warning** for a detailed explanation and retry timing. |
 | Shows "OpenCode Go not configured" | Add `OPENCODE_GO_API_KEY` under Settings → Models, or configure OpenCode Go in the opencode CLI |
 | How do I bind my ChatGPT subscription? | Install the companion plugin **dsh-chatgpt-subscription** and authorize on the official page — it maintains the token this bar reads for quota display |
-| ChatGPT quotas look wrong or empty | The wham endpoint is undocumented and may change; failures keep the last snapshot and retry every 60 s |
+| ChatGPT quotas look wrong or empty | The wham endpoint is undocumented and may change; failures keep the last snapshot and retry every 60 s. Hover over "⚠ refresh failed" to see the retry explanation. |
 | Why is the model's reasoning process not shown? | DSH does not render the model's internal reasoning in the UI — a DSH interface-layer limitation, not the plugin's |
 | Want the original stats row back | Uninstall the plugin and restart |
 
