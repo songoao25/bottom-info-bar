@@ -13,11 +13,7 @@ The **best-adapted bottom info bar for [DeepSeek Harness](https://github.com/dee
 
 ![Bottom Info Bar preview: ChatGPT subscription, DeepSeek API, and OpenCode Go subscription](/assets/bottom-info-bar-preview.jpeg)
 
-Each row shows the same account in **full view** (left) and **compact view** (right):
-
-- **ChatGPT subscription account** — subscription provider, selected model, weekly quota remaining, and reset countdown.
-- **DeepSeek API connection** — model, live balance, off-peak status, next price-switch countdown, and conversation spend.
-- **OpenCode Go subscription account** — subscription provider, selected model, 5-hour / weekly / monthly quotas in full view, and the nearest reset in compact view.
+From top to bottom, the combined screenshot shows **ChatGPT subscription**, **DeepSeek API**, and **OpenCode Go subscription**. Each account is shown in **full view** followed by **compact view**.
 
 ## Features
 
