@@ -429,13 +429,19 @@ module.exports = {
         }
         // 窗口缺失（如 Codex 无 5 小时窗口）→ 跳过窗口组，不占位、不报错
         if (hasData) {
-          // 最紧窗口 = 剩余最少者（已用百分比最高者）；倒计时取"含重置时刻"的最紧窗口（无重置时刻则跳过倒计时）
-          const tight = windows.slice().sort(function (a, b) { return b.usedPercent - a.usedPercent; })[0];
-          const tightForCountdown = windows.filter(function (w) { return w.resetsAt; })
-            .sort(function (a, b) { return b.usedPercent - a.usedPercent; })[0] || null;
-          // compact 密度精简：永远优先显示 5 小时窗口（若存在）；hover 明细仍是全部窗口
-          const fiveHour = windows.find(function (w) { return w.key === 'five_hour'; });
-          const visible = full ? windows : (fiveHour ? [fiveHour] : [tight]);
+          // 简洁模式下选择"最紧迫且有重置时刻"的窗口：
+          // ① 优先 5 小时窗口（若存在且有重置时刻）
+          // ② 否则从有重置时刻的窗口中选最紧者（已用百分比最高）
+          const fiveHourWithReset = windows.find(function (w) { return w.key === 'five_hour' && w.resetsAt; });
+          const windowsWithReset = windows.filter(function (w) { return w.resetsAt; });
+          const tightWithReset = windowsWithReset.length > 0
+            ? windowsWithReset.slice().sort(function (a, b) { return b.usedPercent - a.usedPercent; })[0]
+            : null;
+          const displayWindow = fiveHourWithReset || tightWithReset;
+          
+          // 完整模式显示全部窗口；简洁模式只显示选中的那个窗口
+          const visible = full ? windows : (displayWindow ? [displayWindow] : []);
+          
           // 预警触发条件：已用 ≥80%（= 剩余 ≤20%）→ 琥珀色；否则绿色
           const LOW_QUOTA_PERCENT = 20;
           const alarmWindows = windows.filter(function (w) { return w.usedPercent >= (100 - LOW_QUOTA_PERCENT); });
@@ -464,12 +470,12 @@ module.exports = {
           if (sub.error) {
             groups.push(React.createElement('span', { className: 'bi-stale', key: 'substale', title: '订阅接口暂时不可用，已保留最近一次成功的数据；60 秒后自动重试' }, '⚠ 刷新失败，显示上次快照'));
           }
-          // 距重置倒计时（最紧窗口，天级格式如 '1d 21h'）
-          if (tightForCountdown && tightForCountdown.resetsAt) {
-            const cdTitle = '最紧窗口：' + tightForCountdown.label + '窗口 剩余 ' + remainingPercent(tightForCountdown)
-              + '%（已用 ' + tightForCountdown.usedPercent + '%） · 重置 ' + formatDateTime(tightForCountdown.resetsAt);
+          // 距重置倒计时（与显示的窗口一致，确保额度与倒计时匹配）
+          if (displayWindow && displayWindow.resetsAt) {
+            const cdTitle = displayWindow.label + '窗口 剩余 ' + remainingPercent(displayWindow)
+              + '%（已用 ' + displayWindow.usedPercent + '%） · 重置 ' + formatDateTime(displayWindow.resetsAt);
             groups.push(React.createElement('span', { key: 'subcd', title: cdTitle },
-              '距重置 ', num(fmtResetCountdown(tightForCountdown.resetsAt - now))));
+              '距重置 ', num(fmtResetCountdown(displayWindow.resetsAt - now))));
           }
         }
       }
