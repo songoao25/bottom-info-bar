@@ -75,38 +75,44 @@ function installOverviewStyles() {
   style.dataset.pluginCss = id;
   style.textContent = `
       .bi-ov-root { max-width: var(--dsh-chat-content-width); margin: 0 auto; padding: 16px calc(var(--dsh-composer-side-clearance) + 16px) 32px; box-sizing: border-box; color: var(--dsw-alias-label-primary, #1f2329); font-size: 13px; line-height: 1.6; overflow-y: auto; }
-      .bi-ov-title { font-size: 16px; font-weight: 600; margin: 0 0 12px; }
-      .bi-ov-kpis { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
-      .bi-ov-kpi { flex: 1 1 140px; min-width: 120px; background: var(--dsw-alias-bg-layer-1, rgba(128,128,128,0.06)); border: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,0.18)); border-radius: 10px; padding: 10px 12px; box-sizing: border-box; }
+      .bi-ov-title { font-size: 17px; font-weight: 700; margin: 0 0 16px; }
+      .bi-ov-kpis { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+      .bi-ov-kpi { flex: 1 1 140px; min-width: 120px; background: var(--dsw-alias-bg-layer-1, rgba(128,128,128,0.06)); border: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,0.18)); border-radius: 10px; padding: 12px 14px; box-sizing: border-box; }
       .bi-ov-kpi-label { font-size: 12px; color: var(--dsw-alias-label-secondary, rgba(128,128,128,0.9)); }
-      .bi-ov-kpi-value { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
-      .bi-ov-section { font-size: 14px; font-weight: 600; margin: 20px 0 10px; }
+      .bi-ov-kpi-value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 4px; }
+      .bi-ov-section { font-size: 15px; font-weight: 600; margin: 24px 0 10px; }
       .bi-ov-chart { display: flex; align-items: flex-end; gap: 3px; height: 120px; padding: 8px 4px 0; border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,0.18)); box-sizing: border-box; }
       .bi-ov-col { flex: 1 1 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; min-width: 0; }
       .bi-ov-bar { width: 100%; max-width: 26px; background: var(--dsw-alias-brand-primary, #4d6bfe); border-radius: 3px 3px 0 0; min-height: 2px; transition: opacity 0.15s; }
       .bi-ov-col:hover .bi-ov-bar { opacity: 0.75; }
       .bi-ov-axis { font-size: 10px; color: var(--dsw-alias-label-secondary, rgba(128,128,128,0.9)); margin-top: 4px; white-space: nowrap; transform: scale(0.9); transform-origin: top center; }
-      .bi-ov-toolbar { display: flex; gap: 8px; margin-bottom: 8px; }
-      .bi-ov-btn { font-size: 12px; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,0.25)); background: transparent; color: var(--dsw-alias-label-secondary, rgba(128,128,128,0.9)); cursor: pointer; transition: background 0.12s, color 0.12s; }
-      .bi-ov-btn:hover { background: var(--dsw-alias-bg-layer-2, rgba(128,128,128,0.12)); }
-      .bi-ov-btn:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #4d6bfe); outline-offset: 1px; }
-      /* 选中态：品牌色背景 + 品牌反色文字——浅色主题深底白字、深色主题白底深字，两主题均可读
-         （深色主题下 brand-primary 为近白，若文字仍用 #fff 会白底白字不可见） */
-      .bi-ov-btn.active { background: var(--dsw-alias-brand-primary, #4d6bfe); color: var(--dsw-alias-brand-primary-invert, #ffffff); border-color: transparent; font-weight: 600; }
-      .bi-ov-btn.active:hover { background: var(--dsw-alias-brand-primary, #4d6bfe); }
-      .bi-ov-model { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,0.1)); }
+      /* 分段控件（macOS HIG）：容器圆角 + 选中段语义色背景 + 主文字色，任何主题都有对比度。
+         关键：brand-primary/brand-primary-invert 在同一主题下同值，绝不能用作选中态底/字；
+         必须用 interactive-bg-active（浅色浅灰蓝底/深色浅灰底）配 label-primary。 */
+      .bi-ov-toolbar { display: inline-flex; gap: 0; margin-bottom: 10px; border: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,0.25)); border-radius: 8px; overflow: hidden; background: var(--dsw-alias-bg-layer-2, rgba(128,128,128,0.06)); }
+      .bi-ov-btn { font-size: 13px; padding: 4px 14px; min-height: 28px; border: none; background: transparent; color: var(--dsw-alias-label-secondary, rgba(128,128,128,0.9)); cursor: pointer; transition: background 0.12s, color 0.12s; }
+      .bi-ov-toolbar .bi-ov-btn + .bi-ov-btn { border-left: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,0.25)); }
+      .bi-ov-btn:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(38,49,72,0.06)); }
+      .bi-ov-btn:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #4d6bfe); outline-offset: -2px; }
+      .bi-ov-btn.active { background: var(--dsw-alias-interactive-bg-active, rgba(38,49,72,0.1)); color: var(--dsw-alias-label-primary, #1f2329); font-weight: 600; }
+      .bi-ov-btn.active:hover { background: var(--dsw-alias-interactive-bg-active, rgba(38,49,72,0.1)); }
+      .bi-ov-toolbar-total { align-self: center; margin-left: 10px; font-size: 12px; color: var(--dsw-alias-label-secondary, rgba(128,128,128,0.9)); font-variant-numeric: tabular-nums; }
+      .bi-ov-model { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,0.1)); }
+      .bi-ov-model:nth-child(odd) { background: var(--dsw-alias-interactive-bg-hover, rgba(38,49,72,0.03)); }
       .bi-ov-model-name { flex: 0 0 200px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
       .bi-ov-model-meta { flex: 1; min-width: 0; }
       .bi-ov-model-bar { height: 8px; border-radius: 4px; background: var(--dsw-alias-bg-layer-2, rgba(128,128,128,0.12)); overflow: hidden; margin: 3px 0; }
       .bi-ov-model-fill { height: 100%; background: var(--dsw-alias-brand-primary, #4d6bfe); border-radius: 4px; }
       .bi-ov-model-cost { flex: 0 0 auto; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
-      .bi-ov-record { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 7px 0; border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,0.1)); align-items: baseline; }
+      .bi-ov-record { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 7px 4px; border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,0.1)); align-items: baseline; }
+      .bi-ov-record:nth-child(odd) { background: var(--dsw-alias-interactive-bg-hover, rgba(38,49,72,0.03)); }
       .bi-ov-record-time { flex: 0 0 92px; color: var(--dsw-alias-label-secondary, rgba(128,128,128,0.9)); font-variant-numeric: tabular-nums; }
       .bi-ov-record-model { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .bi-ov-record-provider { color: var(--dsw-alias-label-secondary, rgba(128,128,128,0.75)); font-size: 12px; }
       .bi-ov-record-tokens { color: var(--dsw-alias-label-secondary, rgba(128,128,128,0.9)); font-variant-numeric: tabular-nums; }
       .bi-ov-record-cost { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
-      .bi-ov-loadmore { margin: 14px auto 0; display: block; }
+      .bi-ov-loadmore { margin: 14px auto 0; display: block; border: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,0.25)); border-radius: 8px; padding: 6px 18px; min-height: 32px; font-size: 13px; background: var(--dsw-alias-bg-layer-2, rgba(128,128,128,0.06)); color: var(--dsw-alias-label-primary, #1f2329); cursor: pointer; }
+      .bi-ov-loadmore:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(38,49,72,0.08)); }
       .bi-ov-err { color: var(--dsw-alias-state-error-primary, #dc2626); padding: 12px; text-align: center; }
       .bi-ov-empty { color: var(--dsw-alias-label-secondary, rgba(128,128,128,0.9)); padding: 24px; text-align: center; }
       .bi-ov-loading { color: var(--dsw-alias-label-secondary, rgba(128,128,128,0.9)); padding: 24px; text-align: center; }
@@ -814,20 +820,22 @@ module.exports = {
             );
           }),
         ),
-        // ② 趋势
+        // ② 趋势（HIG：图表前给信息丰富的描述——标题 + 所选区间总计）
+        const trendTotal = (trend.points || []).reduce(function (acc, pt) { return acc + (pt.spend || 0); }, 0);
         React.createElement('div', { className: 'bi-ov-section' }, '花费趋势'),
         React.createElement('div', { className: 'bi-ov-toolbar' },
           React.createElement('button', { className: 'bi-ov-btn' + (trendDays === 7 ? ' active' : ''), onClick: function () { onSwitchDays(7); } }, '近7天'),
           React.createElement('button', { className: 'bi-ov-btn' + (trendDays === 30 ? ' active' : ''), onClick: function () { onSwitchDays(30); } }, '近30天'),
+          React.createElement('span', { className: 'bi-ov-toolbar-total' }, '合计 ' + sym + fmtMoney(trendTotal)),
         ),
-        React.createElement('div', { className: 'bi-ov-chart' }, ...chartCols),
+        React.createElement('div', { className: 'bi-ov-chart', role: 'img', 'aria-label': '近' + trendDays + '天每日花费柱状图，合计 ' + sym + fmtMoney(trendTotal) }, ...chartCols),
         // ③ 模型统计
         React.createElement('div', { className: 'bi-ov-section' }, '各模型用量'),
         modelRows.length > 0 ? modelRows : React.createElement('div', { className: 'bi-ov-empty' }, '暂无模型用量数据'),
         // ④ 明细
         React.createElement('div', { className: 'bi-ov-section' }, '使用记录'),
         records.records.length === 0
-          ? React.createElement('div', { className: 'bi-ov-empty' }, '暂无使用记录')
+          ? React.createElement('div', { className: 'bi-ov-empty' }, '暂无使用记录。开始对话后，每一笔 AI 调用的费用与 token 都会自动记录在这里。')
           : recordRows,
         hasMore
           ? React.createElement('button', {
