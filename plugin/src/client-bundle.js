@@ -65,6 +65,51 @@ function installStyles() {
   return function () { style.remove(); };
 }
 
+// 信息概览页独立样式块（.bi-ov-* 前缀，与信息栏 .bi-* 互不干扰；全部主题 token + fallback）
+function installOverviewStyles() {
+  const id = 'dsh-bottom-info-bar-overview';
+  const existing = document.querySelector('style[data-plugin-css="' + id + '"]');
+  if (existing !== null) return function () {};
+  const style = document.createElement('style');
+  style.dataset.plugin = 'dsh-bottom-info-bar';
+  style.dataset.pluginCss = id;
+  style.textContent = `
+      .bi-ov-root { max-width: var(--dsh-chat-content-width); margin: 0 auto; padding: 16px calc(var(--dsh-composer-side-clearance) + 16px) 32px; box-sizing: border-box; color: var(--dsw-alias-label-primary, #1f2329); font-size: 13px; line-height: 1.6; overflow-y: auto; }
+      .bi-ov-title { font-size: 16px; font-weight: 600; margin: 0 0 12px; }
+      .bi-ov-kpis { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+      .bi-ov-kpi { flex: 1 1 140px; min-width: 120px; background: var(--dsw-alias-bg-layer-1, rgba(128,128,128,0.06)); border: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,0.18)); border-radius: 10px; padding: 10px 12px; box-sizing: border-box; }
+      .bi-ov-kpi-label { font-size: 12px; color: var(--dsw-alias-label-secondary, rgba(128,128,128,0.9)); }
+      .bi-ov-kpi-value { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
+      .bi-ov-section { font-size: 14px; font-weight: 600; margin: 20px 0 10px; }
+      .bi-ov-chart { display: flex; align-items: flex-end; gap: 3px; height: 120px; padding: 8px 4px 0; border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,0.18)); box-sizing: border-box; }
+      .bi-ov-col { flex: 1 1 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; min-width: 0; }
+      .bi-ov-bar { width: 100%; max-width: 26px; background: var(--dsw-alias-brand-primary, #4d6bfe); border-radius: 3px 3px 0 0; min-height: 2px; transition: opacity 0.15s; }
+      .bi-ov-col:hover .bi-ov-bar { opacity: 0.75; }
+      .bi-ov-axis { font-size: 10px; color: var(--dsw-alias-label-secondary, rgba(128,128,128,0.9)); margin-top: 4px; white-space: nowrap; transform: scale(0.9); transform-origin: top center; }
+      .bi-ov-toolbar { display: flex; gap: 8px; margin-bottom: 8px; }
+      .bi-ov-btn { font-size: 12px; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,0.25)); background: transparent; color: var(--dsw-alias-label-secondary, rgba(128,128,128,0.9)); cursor: pointer; }
+      .bi-ov-btn.active { background: var(--dsw-alias-brand-primary, #4d6bfe); color: #fff; border-color: transparent; }
+      .bi-ov-model { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,0.1)); }
+      .bi-ov-model-name { flex: 0 0 200px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+      .bi-ov-model-meta { flex: 1; min-width: 0; }
+      .bi-ov-model-bar { height: 8px; border-radius: 4px; background: var(--dsw-alias-bg-layer-2, rgba(128,128,128,0.12)); overflow: hidden; margin: 3px 0; }
+      .bi-ov-model-fill { height: 100%; background: var(--dsw-alias-brand-primary, #4d6bfe); border-radius: 4px; }
+      .bi-ov-model-cost { flex: 0 0 auto; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+      .bi-ov-record { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 7px 0; border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,0.1)); align-items: baseline; }
+      .bi-ov-record-time { flex: 0 0 92px; color: var(--dsw-alias-label-secondary, rgba(128,128,128,0.9)); font-variant-numeric: tabular-nums; }
+      .bi-ov-record-model { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .bi-ov-record-provider { color: var(--dsw-alias-label-secondary, rgba(128,128,128,0.75)); font-size: 12px; }
+      .bi-ov-record-tokens { color: var(--dsw-alias-label-secondary, rgba(128,128,128,0.9)); font-variant-numeric: tabular-nums; }
+      .bi-ov-record-cost { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+      .bi-ov-loadmore { margin: 14px auto 0; display: block; }
+      .bi-ov-err { color: var(--dsw-alias-state-error-primary, #dc2626); padding: 12px; text-align: center; }
+      .bi-ov-empty { color: var(--dsw-alias-label-secondary, rgba(128,128,128,0.9)); padding: 24px; text-align: center; }
+      .bi-ov-loading { color: var(--dsw-alias-label-secondary, rgba(128,128,128,0.9)); padding: 24px; text-align: center; }
+    `;
+  document.head.appendChild(style);
+  return function () { style.remove(); };
+}
+
 module.exports = {
   inject: ['slots'],
   async apply(ctx) {
@@ -82,8 +127,32 @@ module.exports = {
 
     ctx.effect(function () {
       const disposeStyles = installStyles();
-      return function () { disposeStyles(); };
+      const disposeOverviewStyles = installOverviewStyles();
+      return function () { disposeStyles(); disposeOverviewStyles(); };
     }, 'dsh-bottom-info-bar: styles');
+
+    // ---------- 信息概览页双入口（设置页 + 对话页顶部标签栏，渲染同一组件） ----------
+    // 注册失败只告警、绝不影响信息栏本体；disposer 纳入 effect 清理，卸载自动移除
+    ctx.effect(function () {
+      const disposers = [];
+      try {
+        disposers.push(slots.register(
+          { name: 'settings.section', id: 'info-overview', order: 30, label: '信息概览' },
+          function (slotProps) { return React.createElement(InfoOverviewPage, slotProps); }
+        ));
+      } catch (err) { console.warn('[dsh-bottom-info-bar] 信息概览设置页入口注册失败', err); }
+      try {
+        disposers.push(slots.register(
+          { name: 'conversation.view', id: 'info-overview', order: 30, label: '信息概览' },
+          function (slotProps) { return React.createElement(InfoOverviewPage, slotProps); }
+        ));
+      } catch (err) { console.warn('[dsh-bottom-info-bar] 信息概览标签栏入口注册失败', err); }
+      return function () {
+        for (let i = 0; i < disposers.length; i++) {
+          try { disposers[i](); } catch (err) { /* 清理失败静默 */ }
+        }
+      };
+    }, 'dsh-bottom-info-bar: info-overview entries');
 
     // ---------- 注册：一体替换（同 id 'stats'） ----------
     let density = 'full';
@@ -559,6 +628,209 @@ module.exports = {
         onClick: function () { props.onToggleDensity(); },
         title: '单击切换 完整/简洁',
       }, row1, row2);
+    }
+
+    // ---------- 信息概览页（InfoOverviewPage） ----------
+    // 四模块：① 花费总览卡（今日/本月/近30天/累计）② 近7/30天花费趋势（纯 CSS 柱状图）
+    // ③ 各模型用量统计（占比条）④ 使用记录明细（倒序 + 加载更多）
+    // 铁律：组件只依赖 rpc() 与自有 .bi-ov-* 样式，绝不读 slot 注入 props（两种环境 props 不同）；
+    // 30s 轮询只刷 summary/trend/modelStats，明细列表仅在用户点"加载更多"时拉取（防列表跳动）
+    function InfoOverviewPage() {
+      const [summary, setSummary] = React.useState(null);      // getUsageSummary
+      const [trend, setTrend] = React.useState(null);          // getSpendTrend
+      const [trendDays, setTrendDays] = React.useState(7);     // 7/30 切换
+      const [models, setModels] = React.useState(null);        // getModelStats
+      const [records, setRecords] = React.useState(null);      // { total, records[] }
+      const [loading, setLoading] = React.useState(true);
+      const [fatal, setFatal] = React.useState(null);
+
+      // 千分位 + 整数（token 用）
+      function fmtInt(n) {
+        if (n == null || isNaN(n)) return '—';
+        return Number(n).toLocaleString('en-US');
+      }
+      // 金额：千分位 + 2 位小数；<¥0.01 且 >0 显示「＜0.01」（防误导）；null/NaN 显示「—」
+      function fmtMoney(n) {
+        if (n == null || isNaN(n)) return '—';
+        if (n > 0 && n < 0.01) return '＜0.01';
+        return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+      function symbolFor(currency) {
+        return currency === 'CNY' ? '¥' : (currency === 'USD' ? '$' : '');
+      }
+      // 记录时间（本地时区）：MM-DD HH:mm
+      function fmtTime(ts) {
+        if (ts == null || isNaN(ts)) return '—';
+        const d = new Date(ts);
+        const p = function (x) { return String(x).padStart(2, '0'); };
+        return p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+      }
+
+      // 核心加载：summary + trend + modelStats（30s 轮询）；trendDays 变化时也重拉
+      const loadCore = React.useCallback(function () {
+        Promise.all([
+          rpc('getUsageSummary', { sessionId: '' }),
+          rpc('getSpendTrend', { days: trendDays }),
+          rpc('getModelStats'),
+        ]).then(function (results) {
+          setSummary(results[0]);
+          setTrend(results[1]);
+          setModels(results[2]);
+          setLoading(false);
+          setFatal(null);
+        }).catch(function (err) {
+          setLoading(false);
+          setFatal(String((err && err.message) || err));
+        });
+      }, [trendDays]);
+
+      // 明细加载（offset=0 重置；>0 追加）——仅用户触发，不参与轮询；
+      // 失败进 fatal（错误 + 重试按钮，避免明细 null 时永久卡「加载中」）
+      const loadRecords = React.useCallback(function (offset) {
+        rpc('getUsageRecords', { offset: offset, limit: 20 }).then(function (res) {
+          setRecords(function (prev) {
+            const base = (prev && prev.records) || [];
+            return {
+              total: res.total,
+              records: offset === 0 ? (res.records || []) : base.concat(res.records || []),
+            };
+          });
+        }).catch(function (err) {
+          setLoading(false);
+          setFatal(String((err && err.message) || err));
+        });
+      }, []);
+
+      React.useEffect(function () {
+        loadCore();
+        const id = window.setInterval(loadCore, 30000);
+        return function () { window.clearInterval(id); };
+      }, [loadCore]);
+
+      React.useEffect(function () {
+        loadRecords(0);
+      }, [loadRecords]);
+
+      // 切换 7/30 天：重拉趋势（loadCore 依赖 trendDays，useCallback 重建 → 首 effect 重跑）
+      function onSwitchDays(days) {
+        if (days === trendDays) return;
+        setTrendDays(days);
+      }
+
+      // ---- 组装 ----
+      // 整体重试：核心数据 + 明细都重拉（records 可能因首次失败为 null，必须一并恢复）
+      function onRetry() {
+        setLoading(true);
+        setFatal(null);
+        loadCore();
+        loadRecords(0);
+      }
+      if (fatal) {
+        return React.createElement('div', { className: 'bi-ov-root' },
+          React.createElement('div', { className: 'bi-ov-err' }, '加载失败：' + fatal,
+            ' ',
+            React.createElement('button', { className: 'bi-ov-btn', onClick: onRetry }, '重试'),
+          ),
+        );
+      }
+      if (loading || !summary || !trend || !models || !records) {
+        return React.createElement('div', { className: 'bi-ov-root' },
+          React.createElement('div', { className: 'bi-ov-loading' }, '加载中…'));
+      }
+
+      // ① 花费总览卡
+      const currency = (summary && summary.currency) || 'CNY';
+      const sym = symbolFor(currency) || (currency === 'CNY' ? '¥' : '$');
+      const kpis = [
+        { label: '今日', value: summary.todaySpend },
+        { label: '本月', value: summary.monthSpend },
+        { label: '近30天', value: summary.last30dSpend },
+        { label: '累计', value: summary.totalSpend },
+      ];
+
+      // ② 趋势图（纯 CSS 柱状图）
+      const points = (trend && trend.points) || [];
+      let maxSpend = 0;
+      for (let i = 0; i < points.length; i++) if (points[i].spend > maxSpend) maxSpend = points[i].spend;
+      const chartCols = points.map(function (pt, i) {
+        const h = maxSpend > 0 ? Math.max(2, Math.round((pt.spend / maxSpend) * 100)) : 2;
+        return React.createElement('div', { key: 'col' + i, className: 'bi-ov-col' },
+          React.createElement('div', {
+            className: 'bi-ov-bar',
+            style: { height: h + '%' },
+            title: pt.label + ' 花费 ' + sym + fmtMoney(pt.spend),
+            role: 'img',
+            'aria-label': pt.label + ' 花费 ' + sym + fmtMoney(pt.spend),
+          }),
+          React.createElement('div', { className: 'bi-ov-axis' }, pt.label),
+        );
+      });
+
+      // ③ 模型统计（host 已按费用降序；费用按各模型自身币种显示，避免跨币种误读）
+      const modelRows = (models.models || []).map(function (m, i) {
+        const costTxt = m.cost == null ? '—' : (symbolFor(m.currency) || sym) + fmtMoney(m.cost);
+        const share = m.costShare != null ? Math.round(m.costShare * 100) : 0;
+        return React.createElement('div', { key: 'm' + i, className: 'bi-ov-model' },
+          React.createElement('div', { className: 'bi-ov-model-name', title: (m.modelDisplay || m.model) + (m.provider ? ' · ' + m.provider : '') },
+            m.modelDisplay || m.model),
+          React.createElement('div', { className: 'bi-ov-model-meta' },
+            React.createElement('div', null,
+              fmtInt(m.count) + ' 次 · ' + fmtInt(m.input + m.cacheRead + m.cacheWrite + m.output) + ' token'),
+            React.createElement('div', { className: 'bi-ov-model-bar' },
+              React.createElement('div', { className: 'bi-ov-model-fill', style: { width: share + '%' } }),
+            ),
+          ),
+          React.createElement('div', { className: 'bi-ov-model-cost' }, costTxt),
+        );
+      });
+
+      // ④ 明细列表（倒序，加载更多）
+      const hasMore = records.records.length < records.total;
+      const recordRows = records.records.map(function (r, i) {
+        const costTxt = r.cost == null ? '—' : symbolFor(r.currency) + fmtMoney(r.cost);
+        const tokens = '入 ' + fmtInt(r.input) + ' · 缓存 ' + fmtInt(r.cacheRead + r.cacheWrite) + ' · 出 ' + fmtInt(r.output);
+        return React.createElement('div', { key: 'r' + i, className: 'bi-ov-record' },
+          React.createElement('span', { className: 'bi-ov-record-time' }, fmtTime(r.ts)),
+          React.createElement('span', { className: 'bi-ov-record-model', title: r.model }, r.modelDisplay || r.model),
+          React.createElement('span', { className: 'bi-ov-record-provider' }, r.providerDisplay || r.provider || ''),
+          React.createElement('span', { className: 'bi-ov-record-tokens' }, tokens),
+          React.createElement('span', { className: 'bi-ov-record-cost' }, costTxt),
+        );
+      });
+
+      return React.createElement('div', { className: 'bi-ov-root' },
+        React.createElement('div', { className: 'bi-ov-title' }, '信息概览'),
+        // ① 总览卡
+        React.createElement('div', { className: 'bi-ov-kpis' },
+          kpis.map(function (k, i) {
+            return React.createElement('div', { key: 'k' + i, className: 'bi-ov-kpi' },
+              React.createElement('div', { className: 'bi-ov-kpi-label' }, k.label),
+              React.createElement('div', { className: 'bi-ov-kpi-value' }, sym + fmtMoney(k.value)),
+            );
+          }),
+        ),
+        // ② 趋势
+        React.createElement('div', { className: 'bi-ov-section' }, '花费趋势'),
+        React.createElement('div', { className: 'bi-ov-toolbar' },
+          React.createElement('button', { className: 'bi-ov-btn' + (trendDays === 7 ? ' active' : ''), onClick: function () { onSwitchDays(7); } }, '近7天'),
+          React.createElement('button', { className: 'bi-ov-btn' + (trendDays === 30 ? ' active' : ''), onClick: function () { onSwitchDays(30); } }, '近30天'),
+        ),
+        React.createElement('div', { className: 'bi-ov-chart' }, ...chartCols),
+        // ③ 模型统计
+        React.createElement('div', { className: 'bi-ov-section' }, '各模型用量'),
+        modelRows.length > 0 ? modelRows : React.createElement('div', { className: 'bi-ov-empty' }, '暂无模型用量数据'),
+        // ④ 明细
+        React.createElement('div', { className: 'bi-ov-section' }, '使用记录'),
+        records.records.length === 0
+          ? React.createElement('div', { className: 'bi-ov-empty' }, '暂无使用记录')
+          : recordRows,
+        hasMore
+          ? React.createElement('button', {
+              className: 'bi-ov-btn bi-ov-loadmore',
+              onClick: function () { loadRecords(records.records.length); },
+            }, '加载更多（' + (records.total - records.records.length) + '）')
+          : null,
+      );
     }
   },
 };

@@ -27,6 +27,7 @@ From top to bottom, the combined screenshot shows **ChatGPT subscription**, **De
 - **Live balance** — Fetches real balance from DeepSeek's `/user/balance` API, auto-refreshes every 60 s, and keeps the last known snapshot on failure so usage is never interrupted.
 - **Peak / off-peak pricing** — Shows peak (amber, bold) and off-peak (green, bold) prices with a countdown to the next switch; hidden automatically for providers without tiered pricing.
 - **Real spend tracking** — Records every `llm/stream` request (usage × unit price) and aggregates precisely by **this conversation / today / this month / all time**. Records are persisted to disk — nothing is lost on restart.
+- **Usage overview page** — A complete usage-tracking page with **two entry points**: **Settings → Usage Overview**, or the **Usage Overview tab** at the top of the conversation page — both open the same page. It includes a **spend overview** (today / this month / last 30 days / all time, same figures and formatting as the bar), a **daily spend trend chart** (last 7 / 30 days, switchable), **per-model usage stats** (calls / tokens / cost per model, sorted by cost descending with share bars), and the **usage record list** (time / model / provider / input·cache·output tokens / cost per request, newest first, load more). The page auto-refreshes every 30 s; all data comes from the local ledger (`usage-records.json`) — no network, no upload.
 - **Bold numbers** — Balance, countdown, spend, and all stats are rendered with bold numerals for instant readability.
 - **Full / compact toggle** — Click the bar to switch between two strict modes (debounced).
 - **Low-balance alert** — Shows ⚠ when the balance drops below ¥20.
@@ -61,6 +62,7 @@ For detailed installation, troubleshooting, and upgrade instructions, see [docs/
 
 - **Hover** the bar for details: balance, per-token pricing, next price-switch time, and this-conversation spend (today / this month / all time).
 - **Click** the bar to toggle between full and compact modes.
+- **Open the usage overview**: **Settings → Usage Overview**, or the **Usage Overview** tab at the top of the conversation page.
 
 ## Configuration
 

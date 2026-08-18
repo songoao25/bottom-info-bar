@@ -1023,8 +1023,95 @@ export default {
         monthSpend: monthSpend(nowMs),
         last30dSpend: last30dSpend(nowMs),
         totalSpend: totalSpend(),
+        currency: activeCurrency(), // 信息概览页总览卡币种符号（与信息栏活动币种一致）
         now: nowMs,
       };
+    }
+
+    // ---------- 信息概览页：使用记录明细与模型统计（只读，页面直调） ----------
+
+    // 记录明细：按 ts 倒序（最新在前），offset/limit 分页；offset 越界/负数归零安全、
+    // limit 上限 100 截断——纯内存遍历零副作用，绝不越界崩溃
+    function getUsageRecords(offset, limit) {
+      let off = typeof offset === 'number' && isFinite(offset) ? Math.floor(offset) : 0;
+      let lim = typeof limit === 'number' && isFinite(limit) ? Math.floor(limit) : 20;
+      if (off < 0) off = 0;
+      if (lim < 0) lim = 0;
+      if (lim > 100) lim = 100;
+      // 记账数组恒为追加序（升序），这里显式按 ts 倒序，接口契约不依赖数组写入顺序
+      const sorted = usageRecords.slice().sort(function (a, b) { return b.ts - a.ts; });
+      const total = sorted.length;
+      const start = Math.min(off, total);       // 越界 offset 直接落在末尾 → 空数组，不越界
+      const end = Math.min(start + lim, total); // 尾部截断，不越界
+      const records = [];
+      for (let i = start; i < end; i++) {
+        const r = sorted[i];
+        records.push({
+          ts: r.ts,
+          model: r.model,
+          provider: r.provider,
+          modelDisplay: modelDisplayFromCache(r.model, r.provider, modelNameCache),
+          providerDisplay: providerDisplayFromCache(r.provider, providerNameCache, PROVIDER_DISPLAY),
+          input: r.input,
+          cacheRead: r.cacheRead,
+          cacheWrite: r.cacheWrite,
+          output: r.output,
+          cost: costOf(r, false),
+          currency: modelCurrency(r.model),
+        });
+      }
+      return { total: total, offset: off, limit: lim, records: records };
+    }
+
+    // 模型统计：按 model+provider 聚合全部历史；未知模型（cost 为 null）排最后且不占
+    // totalCost/costShare——与信息栏口径一致（costOf 判定）；跨币种记录逐条带各自币种
+    function getModelStats() {
+      if (usageRecords.length === 0) return { models: [], totalCost: 0, totalCurrency: 'CNY' };
+      const map = new Map();
+      let totalCost = 0;
+      for (let i = 0; i < usageRecords.length; i++) {
+        const r = usageRecords[i];
+        const key = r.model + '\u0000' + r.provider; // 复合键：NUL 分隔避免 model/provider 拼接碰撞
+        let s = map.get(key);
+        if (!s) {
+          s = { model: r.model, provider: r.provider, count: 0, input: 0, cacheRead: 0, cacheWrite: 0, output: 0, cost: 0, billable: true, currency: modelCurrency(r.model) };
+          map.set(key, s);
+        }
+        s.count += 1;
+        s.input += r.input;
+        s.cacheRead += r.cacheRead;
+        s.cacheWrite += r.cacheWrite;
+        s.output += r.output;
+        const c = costOf(r, false);
+        if (c == null) s.billable = false;
+        else { s.cost += c; totalCost += c; }
+      }
+      const models = [];
+      map.forEach(function (s) {
+        const cost = s.billable ? Math.round(s.cost * 10000) / 10000 : null;
+        // 占比用原始合计计算再四舍五入，避免对舍入后的 cost 再求比引入累计误差
+        const costShare = cost == null || totalCost <= 0 ? null : Math.round((s.cost / totalCost) * 10000) / 10000;
+        models.push({
+          model: s.model,
+          provider: s.provider,
+          modelDisplay: modelDisplayFromCache(s.model, s.provider, modelNameCache),
+          count: s.count,
+          input: s.input,
+          cacheRead: s.cacheRead,
+          cacheWrite: s.cacheWrite,
+          output: s.output,
+          cost: cost,
+          currency: s.currency,
+          costShare: costShare,
+        });
+      });
+      models.sort(function (a, b) {
+        if (a.cost == null && b.cost == null) return 0;
+        if (a.cost == null) return 1; // 未知模型排最后
+        if (b.cost == null) return -1;
+        return b.cost - a.cost;
+      });
+      return { models: models, totalCost: Math.round(totalCost * 10000) / 10000, totalCurrency: activeCurrency() };
     }
 
     // ---------- 服务商列表 ----------
@@ -1108,6 +1195,14 @@ export default {
       getUsageSummary: function (args) {
         const sessionId = args && typeof args === 'object' ? String(args.sessionId || '') : '';
         return getUsageSummary(Date.now(), sessionId);
+      },
+      getUsageRecords: function (args) {
+        const offset = args && typeof args === 'object' ? Number(args.offset) : NaN;
+        const limit = args && typeof args === 'object' ? Number(args.limit) : NaN;
+        return getUsageRecords(offset, limit);
+      },
+      getModelStats: function () {
+        return getModelStats();
       },
       getProviders: function () {
         return { providers: providerList(Date.now()), activeProvider: config.activeProvider };
