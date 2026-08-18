@@ -236,5 +236,12 @@ check('D-2 onRetry 同时重拉 core 与 records（records=null 可恢复）', o
 check('D-2 loadRecords 失败进 fatal（不再永久「加载中」）', ov.includes('setLoading(false);\n          setFatal(String((err && err.message) || err));'), true);
 check('D-3 模型行费用按各自币种符号（symbolFor(m.currency) 优先）', ov.includes('(symbolFor(m.currency) || sym)'), true);
 
+// ---- UI 主题回归锁定（v1.2.1 修复：深色主题下选中态白底白字） ----
+// 样式块位于 installOverviewStyles（顶层），用完整源码 clientSrc 检查
+check('UI 选中态按钮用品牌反色文字（非 #fff，深色主题可读）', clientSrc.includes('var(--dsw-alias-brand-primary-invert, #ffffff)'), true);
+check('UI 选中态不再硬编码 color: #fff', !clientSrc.includes('.bi-ov-btn.active { background: var(--dsw-alias-brand-primary, #4d6bfe); color: #fff;'), true);
+check('UI 按钮补 hover 反馈', clientSrc.includes('.bi-ov-btn:hover'), true);
+check('UI 按钮补焦点态（无障碍）', clientSrc.includes('.bi-ov-btn:focus-visible'), true);
+
 console.log('\n结果：' + pass + ' PASS / ' + fail + ' FAIL');
 process.exit(fail > 0 ? 1 : 0);
