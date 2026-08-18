@@ -87,8 +87,13 @@ function installOverviewStyles() {
       .bi-ov-col:hover .bi-ov-bar { opacity: 0.75; }
       .bi-ov-axis { font-size: 10px; color: var(--dsw-alias-label-secondary, rgba(128,128,128,0.9)); margin-top: 4px; white-space: nowrap; transform: scale(0.9); transform-origin: top center; }
       .bi-ov-toolbar { display: flex; gap: 8px; margin-bottom: 8px; }
-      .bi-ov-btn { font-size: 12px; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,0.25)); background: transparent; color: var(--dsw-alias-label-secondary, rgba(128,128,128,0.9)); cursor: pointer; }
-      .bi-ov-btn.active { background: var(--dsw-alias-brand-primary, #4d6bfe); color: #fff; border-color: transparent; }
+      .bi-ov-btn { font-size: 12px; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,0.25)); background: transparent; color: var(--dsw-alias-label-secondary, rgba(128,128,128,0.9)); cursor: pointer; transition: background 0.12s, color 0.12s; }
+      .bi-ov-btn:hover { background: var(--dsw-alias-bg-layer-2, rgba(128,128,128,0.12)); }
+      .bi-ov-btn:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #4d6bfe); outline-offset: 1px; }
+      /* 选中态：品牌色背景 + 品牌反色文字——浅色主题深底白字、深色主题白底深字，两主题均可读
+         （深色主题下 brand-primary 为近白，若文字仍用 #fff 会白底白字不可见） */
+      .bi-ov-btn.active { background: var(--dsw-alias-brand-primary, #4d6bfe); color: var(--dsw-alias-brand-primary-invert, #ffffff); border-color: transparent; font-weight: 600; }
+      .bi-ov-btn.active:hover { background: var(--dsw-alias-brand-primary, #4d6bfe); }
       .bi-ov-model { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,0.1)); }
       .bi-ov-model-name { flex: 0 0 200px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
       .bi-ov-model-meta { flex: 1; min-width: 0; }
