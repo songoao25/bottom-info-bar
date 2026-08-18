@@ -216,7 +216,7 @@ check('FR-3 records 仅首次加载 + 加载更多触发', ov.includes('loadReco
 check('FR-2 总览卡四张（今日/本月/近30天/累计）', ['今日', '本月', '近30天', '累计'].every(function (s) { return ov.includes("'" + s + "'"); }), true);
 check('FR-2 总览卡数据来自 getUsageSummary 四字段', ov.includes('summary.todaySpend') && ov.includes('summary.monthSpend') && ov.includes('summary.last30dSpend') && ov.includes('summary.totalSpend'), true);
 check('FR-2 币种符号从 summary.currency 字段', ov.includes("(summary && summary.currency) || 'CNY'"), true);
-check('FR-3 空态文案「暂无使用记录」', ov.includes("'暂无使用记录'"), true);
+check('FR-3 空态文案「暂无使用记录」+ 下一步说明', ov.includes("'暂无使用记录。开始对话后"), true);
 check('FR-3 加载更多按钮（含剩余数）', ov.includes("'加载更多（'"), true);
 check('FR-3 每批 limit=20', ov.includes('{ offset: offset, limit: 20 }'), true);
 check('FR-3 未知模型费用显示「—」', ov.includes("r.cost == null ? '—'"), true);
@@ -236,12 +236,19 @@ check('D-2 onRetry 同时重拉 core 与 records（records=null 可恢复）', o
 check('D-2 loadRecords 失败进 fatal（不再永久「加载中」）', ov.includes('setLoading(false);\n          setFatal(String((err && err.message) || err));'), true);
 check('D-3 模型行费用按各自币种符号（symbolFor(m.currency) 优先）', ov.includes('(symbolFor(m.currency) || sym)'), true);
 
-// ---- UI 主题回归锁定（v1.2.1 修复：深色主题下选中态白底白字） ----
+// ---- UI 主题回归锁定（v1.2.2 修复：brand-primary/invert 同主题同值，选中态必须用语义色） ----
 // 样式块位于 installOverviewStyles（顶层），用完整源码 clientSrc 检查
-check('UI 选中态按钮用品牌反色文字（非 #fff，深色主题可读）', clientSrc.includes('var(--dsw-alias-brand-primary-invert, #ffffff)'), true);
+check('UI 选中态用系统交互语义色（interactive-bg-active 背景 + label-primary 文字）', clientSrc.includes('.bi-ov-btn.active { background: var(--dsw-alias-interactive-bg-active') && clientSrc.includes('color: var(--dsw-alias-label-primary, #1f2329); font-weight: 600;'), true);
+check('UI 选中态不再用品牌色做底/字（brand-primary 与 invert 同主题同值会同色）', !clientSrc.includes('.bi-ov-btn.active { background: var(--dsw-alias-brand-primary'), true);
 check('UI 选中态不再硬编码 color: #fff', !clientSrc.includes('.bi-ov-btn.active { background: var(--dsw-alias-brand-primary, #4d6bfe); color: #fff;'), true);
-check('UI 按钮补 hover 反馈', clientSrc.includes('.bi-ov-btn:hover'), true);
+check('UI 分段控件容器（HIG：7/30 天切换为相关选项组）', clientSrc.includes('.bi-ov-toolbar { display: inline-flex') && clientSrc.includes('border-radius: 8px; overflow: hidden;'), true);
+check('UI 分段控件段间分隔线', clientSrc.includes('.bi-ov-toolbar .bi-ov-btn + .bi-ov-btn { border-left:'), true);
+check('UI 按钮最小触控高度 28px（macOS HIG 最小控制尺寸）', clientSrc.includes('min-height: 28px'), true);
+check('UI 按钮补 hover 反馈（系统交互 hover 色）', clientSrc.includes('.bi-ov-btn:hover { background: var(--dsw-alias-interactive-bg-hover'), true);
 check('UI 按钮补焦点态（无障碍）', clientSrc.includes('.bi-ov-btn:focus-visible'), true);
+check('UI 图表前有区间合计描述（HIG 图表规范）', clientSrc.includes("'合计 ' + sym + fmtMoney(trendTotal)"), true);
+check('UI 图表容器带 aria-label（无障碍）', clientSrc.includes("'aria-label': '近' + trendDays + '天每日花费柱状图"), true);
+check('UI 空态给下一步说明（HIG 写作规范）', clientSrc.includes('开始对话后，每一笔 AI 调用的费用与 token 都会自动记录在这里'), true);
 
 console.log('\n结果：' + pass + ' PASS / ' + fail + ' FAIL');
 process.exit(fail > 0 ? 1 : 0);

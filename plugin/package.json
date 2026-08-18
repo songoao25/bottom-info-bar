@@ -1,6 +1,6 @@
 {
   "name": "dsh-bottom-info-bar",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "DeepSeek Harness 底部信息栏插件：替换对话输入框下方的原生统计栏，显示服务商/具体模型、真实余额、高峰(琥珀)/空闲(绿)价与倒计时、本对话·今日·近一月·全部花费；新增「信息概览」页（设置页+对话标签栏双入口）追踪费用/模型/token 使用。安装一次，每次打开 DSH 自动生效。",
   "keywords": [
     "deepseek",
