@@ -96,7 +96,6 @@ function installOverviewStyles() {
       .bi-ov-btn:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #4d6bfe); outline-offset: -2px; }
       .bi-ov-btn.active { background: var(--dsw-alias-interactive-bg-active, rgba(38,49,72,0.1)); color: var(--dsw-alias-label-primary, #1f2329); font-weight: 600; }
       .bi-ov-btn.active:hover { background: var(--dsw-alias-interactive-bg-active, rgba(38,49,72,0.1)); }
-      .bi-ov-toolbar-total { align-self: center; margin-left: 10px; font-size: 12px; color: var(--dsw-alias-label-secondary, rgba(128,128,128,0.9)); font-variant-numeric: tabular-nums; }
       .bi-ov-model { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(128,128,128,0.1)); }
       .bi-ov-model:nth-child(odd) { background: var(--dsw-alias-interactive-bg-hover, rgba(38,49,72,0.03)); }
       .bi-ov-model-name { flex: 0 0 200px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
@@ -809,6 +808,7 @@ module.exports = {
         );
       });
 
+      // ② 趋势（HIG：图表前给信息丰富的描述——标题 + 无障碍标签；不额外占用可见版面）
       return React.createElement('div', { className: 'bi-ov-root' },
         React.createElement('div', { className: 'bi-ov-title' }, '信息概览'),
         // ① 总览卡
@@ -820,15 +820,13 @@ module.exports = {
             );
           }),
         ),
-        // ② 趋势（HIG：图表前给信息丰富的描述——标题 + 所选区间总计）
-        const trendTotal = (trend.points || []).reduce(function (acc, pt) { return acc + (pt.spend || 0); }, 0);
+        // ② 趋势
         React.createElement('div', { className: 'bi-ov-section' }, '花费趋势'),
         React.createElement('div', { className: 'bi-ov-toolbar' },
           React.createElement('button', { className: 'bi-ov-btn' + (trendDays === 7 ? ' active' : ''), onClick: function () { onSwitchDays(7); } }, '近7天'),
           React.createElement('button', { className: 'bi-ov-btn' + (trendDays === 30 ? ' active' : ''), onClick: function () { onSwitchDays(30); } }, '近30天'),
-          React.createElement('span', { className: 'bi-ov-toolbar-total' }, '合计 ' + sym + fmtMoney(trendTotal)),
         ),
-        React.createElement('div', { className: 'bi-ov-chart', role: 'img', 'aria-label': '近' + trendDays + '天每日花费柱状图，合计 ' + sym + fmtMoney(trendTotal) }, ...chartCols),
+        React.createElement('div', { className: 'bi-ov-chart', role: 'img', 'aria-label': '近' + trendDays + '天每日花费柱状图' }, ...chartCols),
         // ③ 模型统计
         React.createElement('div', { className: 'bi-ov-section' }, '各模型用量'),
         modelRows.length > 0 ? modelRows : React.createElement('div', { className: 'bi-ov-empty' }, '暂无模型用量数据'),

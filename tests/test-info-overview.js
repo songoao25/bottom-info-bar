@@ -246,8 +246,8 @@ check('UI 分段控件段间分隔线', clientSrc.includes('.bi-ov-toolbar .bi-o
 check('UI 按钮最小触控高度 28px（macOS HIG 最小控制尺寸）', clientSrc.includes('min-height: 28px'), true);
 check('UI 按钮补 hover 反馈（系统交互 hover 色）', clientSrc.includes('.bi-ov-btn:hover { background: var(--dsw-alias-interactive-bg-hover'), true);
 check('UI 按钮补焦点态（无障碍）', clientSrc.includes('.bi-ov-btn:focus-visible'), true);
-check('UI 图表前有区间合计描述（HIG 图表规范）', clientSrc.includes("'合计 ' + sym + fmtMoney(trendTotal)"), true);
-check('UI 图表容器带 aria-label（无障碍）', clientSrc.includes("'aria-label': '近' + trendDays + '天每日花费柱状图"), true);
+check('UI 可见版面不含区间合计文字（用户反馈多余，已移除）', !clientSrc.includes("'合计 ' + sym + fmtMoney(trendTotal)") && !clientSrc.includes('.bi-ov-toolbar-total'), true);
+check('UI 图表容器保留 aria-label 无障碍描述（读屏用，不占版面）', clientSrc.includes("'aria-label': '近' + trendDays + '天每日花费柱状图'"), true);
 check('UI 空态给下一步说明（HIG 写作规范）', clientSrc.includes('开始对话后，每一笔 AI 调用的费用与 token 都会自动记录在这里'), true);
 
 console.log('\n结果：' + pass + ' PASS / ' + fail + ' FAIL');
