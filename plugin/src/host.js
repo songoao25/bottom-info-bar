@@ -12,6 +12,53 @@ import { dirname, join } from 'node:path'
 
 const DATA_DIR = process.env.DSH_BOTTOM_INFO_BAR_DATA_DIR || join(homedir(), '.dsh', 'dsh-bottom-info-bar')
 const DATA_FILE = join(DATA_DIR, 'usage-records.json')
+const PACKAGE_FILE = new URL('../package.json', import.meta.url)
+const UPDATE_REGISTRY_URL = 'https://registry.npmjs.org/dsh-bottom-info-bar/latest'
+const UPDATE_CHECK_TIMEOUT_MS = 5000
+
+function packageVersion() {
+  try {
+    const pkg = JSON.parse(readFileSync(PACKAGE_FILE, 'utf8'))
+    return typeof pkg.version === 'string' ? pkg.version : '0.0.0'
+  } catch {
+    return '0.0.0'
+  }
+}
+
+function stableVersion(value) {
+  const match = typeof value === 'string' && value.trim().match(/^v?(\\d+)\\.(\\d+)\\.(\\d+)$/)
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null
+}
+
+function compareVersions(left, right) {
+  const a = stableVersion(left)
+  const b = stableVersion(right)
+  if (!a || !b) return 0
+  for (let i = 0; i < 3; i++) {
+    if (a[i] !== b[i]) return a[i] > b[i] ? 1 : -1
+  }
+  return 0
+}
+
+async function checkLatestVersion() {
+  const current = packageVersion()
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), UPDATE_CHECK_TIMEOUT_MS)
+  try {
+    const response = await fetch(UPDATE_REGISTRY_URL, {
+      headers: { accept: 'application/json' },
+      signal: controller.signal,
+    })
+    if (!response.ok) return { available: false, current: current, latest: null }
+    const body = await response.json()
+    const latest = body && typeof body.version === 'string' ? body.version : null
+    return { available: !!latest && compareVersions(latest, current) > 0, current: current, latest: latest }
+  } catch {
+    return { available: false, current: current, latest: null }
+  } finally {
+    clearTimeout(timer)
+  }
+}
 
 // ---------- 双模式（余额制 / 订阅制）配置 ----------
 // 订阅制 provider 集合：这些 provider 走"额度窗口"显示而非余额（可在此增删）
@@ -221,6 +268,9 @@ function loadUsageRecords() {
 export default {
   inject: ['credentials', 'timer'],
   apply(ctx) {
+    // 版本检查只在 host 进程启动时发起一次；客户端后续只读取这个缓存结果。
+    const updateInfoPromise = checkLatestVersion()
+
     // ---------- 定价表（元/美元 · 百万 tokens；DeepSeek 官方 2026-08-17；OpenAI 为 2026 官方价示例） ----------
     const PRICING = {
       'deepseek-v4-flash': {
@@ -1123,6 +1173,9 @@ export default {
     // ---------- RPC 路由（webServer HTTP，替代动态沙箱 harness.handle） ----------
     const ROUTE_PREFIX = '/_dsh/dsh-bottom-info-bar';
     const ROUTES = {
+      getUpdateInfo: function () {
+        return updateInfoPromise
+      },
       getBalanceSnapshot: function (args) {
         const pid = args && typeof args === 'object' && args.provider ? String(args.provider) : '';
         return activeBalanceSummary(pid || undefined, Date.now());
