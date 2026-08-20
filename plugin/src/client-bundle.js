@@ -7,6 +7,10 @@
 // 显示行为：① 本对话花费始终显示——新会话/对话刚开始（尚无记账）时显示"本对话 ¥0.000"，
 //   hover 仍可查看持久化的 今天/近一月/全部；
 //   ② 完整模式下原生统计行无 steps 门槛，对话刚开始即显示"0 轮 · 0 步"。
+// 失败策略（AUDIT-CODE-REVIEW 缺陷 #1）：逐接口容错——
+//   ① rpc 带 20s 超时且可被外部 AbortSignal 中止（组件卸载即取消），杜绝永久"加载中…"；
+//   ② load 用 Promise.allSettled 逐端点处理：成功端点写新值，失败端点保留旧值并记入 errors 表；
+//   ③ 渲染永不整栏降级：旧数据照常显示，仅失败项打降级标记（分块/全局提示）。
 'use strict';
 
 const React = require('react');
@@ -19,11 +23,33 @@ const HIDE_SPEED_FIELDS = true;
 // 订阅窗口预警阈值：任一窗口已用百分比 ≥ 该值 → 红色 ⚠（与 host 常量保持一致）
 const WINDOW_ALERT_PERCENT = 90;
 
-function rpc(method, args) {
+// RPC 超时兜底：host 侧 15s 超时之上再留余量；端点挂起时 20s 内必失败，杜绝永久"加载中…"
+const RPC_TIMEOUT_MS = 20000;
+
+// rpc(method, args, externalSignal)：
+// - 超时：20s 未响应 → abort 并以"请求超时"失败（fetch 挂起不阻塞界面）
+// - 可中止：传入外部 AbortSignal（组件卸载时 abort）→ 立即取消并拒绝"请求已取消"
+function rpc(method, args, externalSignal) {
+  let abortReason = null;
+  const controller = new AbortController();
+  const timer = window.setTimeout(function () { abortReason = '请求超时'; controller.abort(); }, RPC_TIMEOUT_MS);
+  function onExternalAbort() { abortReason = '请求已取消'; controller.abort(); }
+  function cleanup() {
+    window.clearTimeout(timer);
+    if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort);
+  }
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      cleanup();
+      return Promise.reject(new Error('请求已取消'));
+    }
+    externalSignal.addEventListener('abort', onExternalAbort);
+  }
   return fetch(RPC_BASE + '/' + method, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(args || {}),
+    signal: controller.signal,
   }).then(function (res) {
     if (!res.ok) {
       return res.text().then(function (raw) {
@@ -35,7 +61,32 @@ function rpc(method, args) {
     return res.text().then(function (raw) {
       try { return JSON.parse(raw); } catch (e) { throw new Error('响应解析失败'); }
     });
-  });
+  }).catch(function (err) {
+    // 本函数主动 abort（超时/外部取消）→ 统一为可读错误；其余错误原样抛出
+    if (abortReason !== null) throw new Error(abortReason);
+    if (err && err.name === 'AbortError') throw new Error('请求已取消');
+    throw err;
+  }).finally(cleanup);
+}
+
+// load() 的逐接口容错状态合并（模块级纯函数，供单测提取）：
+// 成功端点 → 写新值 + 清除错误；失败端点 → 保留旧值（无旧数据则为 null）+ 记录错误信息。
+// results 与端点顺序一一对应：balance / pricing / usage / billingMode / sub。
+function mergeLoadResults(prev, results) {
+  const keys = ['balance', 'pricing', 'usage', 'billingMode', 'sub'];
+  const next = { loading: false, errors: { balance: null, pricing: null, usage: null, billingMode: null, sub: null } };
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    const r = results[i];
+    if (r && r.status === 'fulfilled') {
+      next[key] = r.value;
+    } else {
+      next[key] = prev[key];
+      const reason = r && r.reason;
+      next.errors[key] = reason && reason.message ? String(reason.message) : String(reason || 'RPC 失败');
+    }
+  }
+  return next;
 }
 
 function installStyles() {
@@ -137,7 +188,8 @@ module.exports = {
       const usageProj = props.useProjection ? props.useProjection('tokenUsage') : undefined;
 
       const [state, setState] = React.useState({
-        loading: true, balance: null, pricing: null, usage: null, billingMode: null, sub: null, fatal: null,
+        loading: true, balance: null, pricing: null, usage: null, billingMode: null, sub: null,
+        errors: { balance: null, pricing: null, usage: null, billingMode: null, sub: null },
       });
       const [now, setNow] = React.useState(Date.now());
 
@@ -157,20 +209,28 @@ module.exports = {
         return '';
       }, []);
 
+      // 组件生命周期 AbortSignal：卸载时中止所有在途 RPC（配合 rpc 20s 超时，双保险防旧响应写 state）
+      const abortRef = React.useRef(null);
+      React.useEffect(function () {
+        const controller = new AbortController();
+        abortRef.current = controller;
+        return function () { controller.abort(); };
+      }, []);
+
       const load = React.useCallback(function () {
         const sessionId = resolveSessionId();
-        Promise.all([
-          rpc('getBalanceSnapshot'),
-          rpc('getPricing'),
-          rpc('getUsageSummary', { sessionId: sessionId }),
-          rpc('getBillingMode'),
-          rpc('getSubscriptionSnapshot'),
+        const signal = abortRef.current ? abortRef.current.signal : null;
+        // 逐接口容错：allSettled 等全部 settle（最坏 20s 超时兜底），任一失败只降级该端点，
+        // 不拖垮其他成功数据；合并逻辑在 mergeLoadResults（失败端点保留旧值 + 记录错误）
+        Promise.allSettled([
+          rpc('getBalanceSnapshot', null, signal),
+          rpc('getPricing', null, signal),
+          rpc('getUsageSummary', { sessionId: sessionId }, signal),
+          rpc('getBillingMode', null, signal),
+          rpc('getSubscriptionSnapshot', null, signal),
         ]).then(function (results) {
-          setState({ loading: false, balance: results[0], pricing: results[1], usage: results[2], billingMode: results[3], sub: results[4], fatal: null });
-        }).catch(function (err) {
-          setState(function (s) {
-            return { loading: false, balance: s.balance, pricing: s.pricing, usage: s.usage, billingMode: s.billingMode, sub: s.sub, fatal: String((err && err.message) || err) };
-          });
+          if (signal && signal.aborted) return; // 组件已卸载：放弃结果，不写 state
+          setState(function (s) { return mergeLoadResults(s, results); });
         });
       }, [resolveSessionId]);
 
@@ -332,6 +392,7 @@ module.exports = {
       // ---- 余额制模式（v1.0.0 现状，完全不动）：服务商+模型 → 余额 → 时段 → 倒计时 → 本对话花费 ----
       function pushBalanceGroups(groups) {
         const bal = state.balance;
+        const errors = state.errors || {};
         const alertActive = !!(bal && bal.alert && bal.alert.active);
         groups.push(providerGroup());
 
@@ -350,11 +411,15 @@ module.exports = {
             bal.estimate ? React.createElement('span', { className: 'bi-stale' }, '（估算）') : null,
             alertActive ? React.createElement('span', { className: 'bi-err', title: '余额低于阈值' }, ' ⚠') : null,
           ));
-          if (bal.error) {
-            groups.push(React.createElement('span', { className: 'bi-stale', key: 'balerr', title: '余额接口暂时不可用，已保留最近一次成功的数据；60 秒后自动重试' }, '⚠ 刷新失败，显示上次快照'));
+          // host 快照失败（bal.error）或本次 RPC 失败（errors.balance）→ 均保留旧数据 + 降级标记
+          if (bal.error || errors.balance) {
+            groups.push(React.createElement('span', { className: 'bi-stale', key: 'balerr', title: '余额数据暂不可用，已保留最近一次成功的数据；自动重试中' }, '⚠ 刷新失败，显示上次快照'));
           }
         } else if (bal && bal.error) {
           groups.push(React.createElement('span', { className: 'bi-err', key: 'berr' }, '余额获取失败：' + bal.error.message));
+        } else if (errors.balance) {
+          // 本次 RPC 失败且无旧数据：只降级余额块，其余端点数据照常渲染
+          groups.push(React.createElement('span', { className: 'bi-err', key: 'berr' }, '余额获取失败：' + errors.balance));
         }
 
         // 时段：仅峰谷价服务商显示"高峰价/空闲价"（flat/unknown 服务商不显示；hover 展示具体价格）
@@ -396,6 +461,9 @@ module.exports = {
           groups.push(React.createElement('span', { key: 'convo', title: detail || '本对话花费' },
             '本对话 ',
             num(costTxt)));
+        } else if (errors.usage) {
+          // 本次 RPC 失败且无旧数据：只降级花费块，其余端点数据照常渲染
+          groups.push(React.createElement('span', { className: 'bi-err', key: 'usageerr' }, '花费获取失败：' + errors.usage));
         }
       }
 
@@ -404,8 +472,14 @@ module.exports = {
       function pushSubscriptionGroups(groups) {
         groups.push(subscriptionProviderGroup());
         const sub = state.sub;
+        const errors = state.errors || {};
         if (!sub) {
-          groups.push(React.createElement('span', { key: 'subload' }, '订阅额度加载中…'));
+          if (errors.sub) {
+            // 本次 RPC 失败且无旧数据：显示失败信息而非永久"加载中…"
+            groups.push(React.createElement('span', { className: 'bi-err', key: 'suberr' }, '订阅额度获取失败：' + errors.sub));
+          } else {
+            groups.push(React.createElement('span', { key: 'subload' }, '订阅额度加载中…'));
+          }
           return;
         }
         const rawWindows = Array.isArray(sub.windows) ? sub.windows : [];
@@ -469,8 +543,9 @@ module.exports = {
                 }, ' ⚠')
               : null,
           ));
-          if (sub.error) {
-            groups.push(React.createElement('span', { className: 'bi-stale', key: 'substale', title: '订阅接口暂时不可用，已保留最近一次成功的数据；60 秒后自动重试' }, '⚠ 刷新失败，显示上次快照'));
+          // host 快照失败（sub.error）或本次 RPC 失败（errors.sub）→ 均保留旧数据 + 降级标记
+          if (sub.error || errors.sub) {
+            groups.push(React.createElement('span', { className: 'bi-stale', key: 'substale', title: '订阅数据暂不可用，已保留最近一次成功的数据；自动重试中' }, '⚠ 刷新失败，显示上次快照'));
           }
           // 距重置倒计时（与显示的窗口一致，确保额度与倒计时匹配）
           if (displayWindow && displayWindow.resetsAt) {
@@ -487,15 +562,30 @@ module.exports = {
       const full = props.density === 'full';
       // 模式互斥：订阅制渲染订阅版 row2，余额制渲染 v1.0.0 现状，绝不叠加
       const isSub = !!(state.billingMode && state.billingMode.mode === 'subscription');
-
-      if (state.fatal) {
-        groups.push(React.createElement('span', { className: 'bi-err', key: 'fatal' }, '加载失败：' + state.fatal));
-      } else if (state.loading) {
+      // 逐接口容错渲染：loading 仅"首帧且无任何数据"时占位；此后始终渲染（旧数据 + 失败降级标记），
+      // 绝不整栏"加载失败"；rpc 有 20s 超时兜底，也不存在永久"加载中…"
+      const hasAnyData = state.balance !== null || state.pricing !== null || state.usage !== null
+        || state.billingMode !== null || state.sub !== null;
+      if (state.loading && !hasAnyData) {
         groups.push(React.createElement('span', { key: 'loading' }, '加载中…'));
       } else if (isSub) {
         pushSubscriptionGroups(groups);
       } else {
         pushBalanceGroups(groups);
+      }
+
+      // 全局降级提示：任一端点失败 → 旧数据照常渲染 + 角落提示（title 列出失败项），仅失败项降级
+      const errors = state.errors || {};
+      const failedLabels = [];
+      if (errors.balance) failedLabels.push('余额');
+      if (errors.pricing) failedLabels.push('定价');
+      if (errors.usage) failedLabels.push('花费');
+      if (errors.billingMode) failedLabels.push('模式');
+      if (errors.sub) failedLabels.push('订阅额度');
+      if (failedLabels.length > 0) {
+        groups.push(React.createElement('span', { className: 'bi-stale', key: 'degraded',
+          title: '以下数据暂不可用：' + failedLabels.join('、') + '（已保留上次成功数据，自动重试中）' },
+          '⚠ 部分数据刷新失败'));
       }
 
       // ---- 组装 ----

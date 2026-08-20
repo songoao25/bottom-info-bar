@@ -193,16 +193,28 @@ function readCodexAuthFile(filePath) {
 // ---------- 订阅令牌与绑定（v1.2.0 起剥离）：绑定/OAuth/续期/写回/凭据注入由独立插件
 // dsh-chatgpt-subscription 负责；本插件只保留 readCodexAuthFile（只读令牌用于额度请求） ----------
 
+// 记账数值清洗：写入前的最后一道闸——NaN/Infinity/负数/非数字一律归 0（不让坏数值落盘、不污染汇总）
+function sanitizeTokens(value) {
+  return Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+// 单条记账记录有效性（加载过滤）：ts/input/cacheRead/cacheWrite/output 均须为有限非负数；
+// 手改/损坏文件里的 Infinity（如 JSON 字面量 1e999）与负值记录直接丢弃，绝不进入内存汇总
+function isValidUsageRecord(r) {
+  return !!r && typeof r === 'object' && typeof r.model === 'string' && typeof r.provider === 'string'
+    && Number.isFinite(r.ts) && r.ts >= 0
+    && Number.isFinite(r.input) && r.input >= 0
+    && Number.isFinite(r.cacheRead) && r.cacheRead >= 0
+    && Number.isFinite(r.cacheWrite) && r.cacheWrite >= 0
+    && Number.isFinite(r.output) && r.output >= 0;
+}
+
 function loadUsageRecords() {
   try {
     if (!existsSync(DATA_FILE)) return []
     const parsed = JSON.parse(readFileSync(DATA_FILE, 'utf8'))
     if (!Array.isArray(parsed)) return []
-    return parsed.filter(function (r) {
-      return r && typeof r === 'object' && typeof r.ts === 'number'
-        && typeof r.input === 'number' && typeof r.output === 'number'
-        && typeof r.model === 'string' && typeof r.provider === 'string';
-    });
+    return parsed.filter(isValidUsageRecord);
   } catch (err) { /* 文件损坏/不可读 → 从空开始，不影响主流程 */ return [] }
 }
 
@@ -314,11 +326,13 @@ export default {
         try {
           cred = await ctx.credentials.resolve(prov.credential);
         } catch (err) {
-          balances[pid] = { data: null, fetchedAt: null, error: { kind: 'credentials', message: '凭据读取失败' } };
+          // 与下方 http/parse/exception 分支一致：失败保留旧 data/fetchedAt，仅换 error；seq guard 防慢请求覆盖新快照
+          if (balanceSeq[pid] === seq) balances[pid] = { data: balances[pid] && balances[pid].data, fetchedAt: balances[pid] && balances[pid].fetchedAt, error: { kind: 'credentials', message: '凭据读取失败' } };
           return;
         }
         if (!cred || !cred.value) {
-          balances[pid] = { data: null, fetchedAt: null, error: { kind: 'no-key', message: '未配置 ' + prov.credential } };
+          // no-key 同样保留旧快照：一次瞬断/未配置不把好数据清空（客户端据 error 显示配置引导/警示）
+          if (balanceSeq[pid] === seq) balances[pid] = { data: balances[pid] && balances[pid].data, fetchedAt: balances[pid] && balances[pid].fetchedAt, error: { kind: 'no-key', message: '未配置 ' + prov.credential } };
           return;
         }
         try {
@@ -648,8 +662,20 @@ export default {
     }
 
     // ---------- 当前激活服务商余额（含预警） ----------
+    // 模型目录 provider id → 余额账户 key：DSH 目录常用 deepseek-official / openai-codex 等标识，
+    // 余额账户按服务商聚合（deepseek-official → deepseek 同一账户）；未知 → 回退 config.activeProvider。
+    // 目的：余额/币种跟随"活跃模型的服务商"，避免 OpenAI 模型激活时仍显示 DeepSeek ¥ 余额与 ¥0 花费。
+    function balanceProviderKey(pid) {
+      if (!pid) return config.activeProvider;
+      if (Object.hasOwn(PROVIDERS, pid)) return pid;
+      if (pid.indexOf('deepseek') === 0) return 'deepseek';
+      if (pid.indexOf('openai') === 0) return 'openai';
+      return config.activeProvider;
+    }
+
     function activeBalanceSummary(providerId, nowMs) {
-      const pid = providerId || config.activeProvider;
+      // 默认跟随活跃模型的服务商（而非恒 deepseek）；显式 providerId（RPC 传参）优先
+      const pid = balanceProviderKey(providerId || modelSelection().provider || config.activeProvider);
       const prov = PROVIDERS[pid] || PROVIDERS.deepseek;
       const snap = balances[pid] || { data: null, fetchedAt: null, error: null };
       let alert = null;
@@ -704,16 +730,19 @@ export default {
     }
 
     function recordUsage(options, usage) {
+      const u = usage || {};
+      // 数值清洗：uncachedInputTokens 的 != null 对 NaN 恒真、|| 0 挡不住 Infinity/负值——
+      // 统一 sanitizeTokens（NaN/Infinity/负数/非数字 → 0），坏数值不进内存汇总也不落盘
       const rec = {
         ts: Date.now(),
         model: options.model || '',
         provider: options.provider || '',
         sessionId: options.sessionId || '',
         purpose: options.purpose || '',
-        input: usage.uncachedInputTokens != null ? usage.uncachedInputTokens : (usage.inputTokens || 0),
-        cacheRead: usage.cacheReadTokens || 0,
-        cacheWrite: usage.cacheWriteTokens || 0,
-        output: usage.outputTokens || 0,
+        input: sanitizeTokens(u.uncachedInputTokens != null ? u.uncachedInputTokens : u.inputTokens),
+        cacheRead: sanitizeTokens(u.cacheReadTokens),
+        cacheWrite: sanitizeTokens(u.cacheWriteTokens),
+        output: sanitizeTokens(u.outputTokens),
       };
       usageRecords.push(rec);
       if (usageRecords.length > 3000) usageRecords.splice(0, usageRecords.length - 3000);
@@ -726,7 +755,7 @@ export default {
         stream = await next();
       } catch (err) {
         console.warn('[dsh-bottom-info-bar] llm/stream 获取失败，本次不记账', String((err && err.message) || err));
-        return;
+        throw err; // 保持错误向上传播：不把上游失败消化成空流（仅跳过记账逻辑）
       }
       try {
         for await (const chunk of stream) {
@@ -757,7 +786,9 @@ export default {
         p = entry.price;
       }
       const missInput = record.input + record.cacheWrite;
-      return (missInput * p.inputCacheMiss + record.cacheRead * p.inputCacheHit + record.output * p.output) / 1e6;
+      const cost = (missInput * p.inputCacheMiss + record.cacheRead * p.inputCacheHit + record.output * p.output) / 1e6;
+      // 结果非有限（任一字段 NaN/Infinity/缺失）→ null；调用方统一 `c != null` 判空即排除，NaN 不会累加进任何汇总
+      return Number.isFinite(cost) ? cost : null;
     }
 
     // ---------- 会话聚合与中位数 ----------
@@ -835,14 +866,16 @@ export default {
     }
 
     function activeCurrency() {
-      const snap = balances[config.activeProvider];
+      // 币种跟随活跃模型服务商（与余额账户同源）：deepseek → CNY、openai → USD（估算快照）；
+      // 余额快照未就绪时回退活跃模型定价币种，避免启动初期/无快照时显示错币种
+      const key = balanceProviderKey(modelSelection().provider || config.activeProvider);
+      const snap = balances[key];
       if (snap && snap.data && snap.data.currency) return snap.data.currency;
-      const entry = PRICING[DEFAULT_MODEL];
-      return entry ? entry.currency : 'CNY';
+      return modelCurrency(modelSelection().model);
     }
 
     function spendSummary(nowMs) {
-      const snap = balances[config.activeProvider] || { data: null };
+      const snap = balances[balanceProviderKey(modelSelection().provider || config.activeProvider)] || { data: null };
       const balance = snap.data ? snap.data.total : null;
       const cur = activeCurrency();
       const cutoff = nowMs - SPEND_DAYS * 86400 * 1000;

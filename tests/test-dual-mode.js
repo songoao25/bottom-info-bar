@@ -255,7 +255,7 @@ check('client 含 2 秒高频 getBillingMode 轮询', /setInterval\(function \(\
 check('client 模式/provider/model 变化触发完整 load', clientSrc.includes('if (lastKey !== null && lastKey !== key) load();'), true);
 check('client 轮询 key 含 mode+provider+model', clientSrc.includes("const key = bm.mode + ':' + (bm.provider || '') + ':' + (bm.model || '');"), true);
 check('client 轮询失败静默（30s 主轮询兜底）', clientSrc.includes('轮询失败静默：30s 主轮询兜底'), true);
-check('client getBillingMode 调用 ≥2 处（主 load + 高频轮询）', (clientSrc.match(/rpc\('getBillingMode'\)/g) || []).length >= 2, true);
+check('client getBillingMode 调用 ≥2 处（主 load + 高频轮询）', (clientSrc.match(/rpc\('getBillingMode'/g) || []).length >= 2, true);
 
 console.log('\n结果：' + pass + ' PASS / ' + fail + ' FAIL');
 process.exit(fail > 0 ? 1 : 0);
