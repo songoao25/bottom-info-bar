@@ -8,17 +8,25 @@
 
 ## 安装
 
-两种方式任选其一：
+### 方式一：NPM 安装（推荐）
 
 ```bash
-# 方式一：一键脚本（推荐）
+dsh plugin --profile web add dsh-bottom-info-bar
+```
+
+### 方式二：一键脚本
+
+```bash
 git clone https://github.com/songoao25/dsh-bottom-info-bar.git
 cd dsh-bottom-info-bar
 ./install.sh
 # 默认安装到 web profile；其他 profile 需以 `dsh web` 方式使用：
 ./install.sh --profile <profile名>
+```
 
-# 方式二：dsh 插件命令（先构建，plugin/lib/ 由 build 生成、不入 git）
+### 方式三：从本地代码安装
+
+```bash
 git clone https://github.com/songoao25/dsh-bottom-info-bar.git
 cd dsh-bottom-info-bar/plugin && node scripts/build.mjs
 cd ..
@@ -58,12 +66,23 @@ dsh --profile web --dump-config | grep -A2 dsh-bottom-info-bar
 
 ## 更新版本
 
+如果最初使用 NPM 安装：
+
+```bash
+dsh plugin --profile web update dsh-bottom-info-bar --latest
+# 重启 dsh web
+```
+
+如果最初使用本地代码 / symlink 安装：
+
 ```bash
 cd dsh-bottom-info-bar
 git pull
-dsh plugin --profile web update dsh-bottom-info-bar   # 用 pnpm 更新到新版本
+cd plugin && node scripts/build.mjs
 # 重启 dsh web
 ```
+
+本地 symlink 安装不会被 NPM 更新命令替换；想迁移到 NPM，先移除旧安装，再执行 NPM 安装命令。
 
 ## 卸载
 
