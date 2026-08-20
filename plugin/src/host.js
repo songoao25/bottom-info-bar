@@ -26,7 +26,7 @@ function packageVersion() {
 }
 
 function stableVersion(value) {
-  const match = typeof value === 'string' && value.trim().match(/^v?(\\d+)\\.(\\d+)\\.(\\d+)$/)
+  const match = typeof value === 'string' && value.trim().match(/^v?(\d+)\.(\d+)\.(\d+)$/)
   return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null
 }
 
