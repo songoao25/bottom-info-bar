@@ -46,14 +46,26 @@ cd dsh-bottom-info-bar
 ./install.sh                # installs to the "web" profile; use --profile <name> to override
 ```
 
-### Option 2 — dsh plugin command
+### Option 2 — NPM package (recommended for future updates)
+
+```bash
+dsh plugin --profile web add dsh-bottom-info-bar
+```
+
+To update later:
+
+```bash
+dsh plugin --profile web update dsh-bottom-info-bar --latest
+```
+
+### Option 3 — dsh plugin command from a local checkout
 
 ```bash
 git clone https://github.com/songoao25/dsh-bottom-info-bar.git
 dsh plugin --profile web add /path/to/dsh-bottom-info-bar/plugin
 ```
 
-> **Restart `dsh web` after installing.** Plugins are composed when the host process starts; a page refresh alone is not enough.
+> **Restart `dsh web` after installing or updating.** Plugins are composed when the host process starts; a page refresh alone is not enough.
 
 For detailed installation, troubleshooting, and upgrade instructions, see [docs/INSTALL.md](docs/INSTALL.md).
 
@@ -61,7 +73,6 @@ For detailed installation, troubleshooting, and upgrade instructions, see [docs/
 
 - **Hover** the bar for details: balance, per-token pricing, next price-switch time, and this-conversation spend (today / this month / all time).
 - **Click** the bar to toggle between full and compact modes.
-- **Open the usage overview**: **Settings → Usage Overview**, or the **Usage Overview** tab at the top of the conversation page.
 
 ## Configuration
 

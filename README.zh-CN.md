@@ -46,14 +46,26 @@ cd dsh-bottom-info-bar
 ./install.sh                # 默认安装到 web profile；可用 --profile <name> 指定
 ```
 
-### 方式二：dsh 插件命令
+### 方式二：NPM 安装（以后更新最方便）
+
+```bash
+dsh plugin --profile web add dsh-bottom-info-bar
+```
+
+以后更新：
+
+```bash
+dsh plugin --profile web update dsh-bottom-info-bar --latest
+```
+
+### 方式三：从本地代码安装
 
 ```bash
 git clone https://github.com/songoao25/dsh-bottom-info-bar.git
 dsh plugin --profile web add /path/to/dsh-bottom-info-bar/plugin
 ```
 
-> **安装后需重启 `dsh web`**：插件在宿主进程启动时组合加载，仅刷新页面不足以生效。
+> **安装或更新后需重启 `dsh web`**：插件在宿主进程启动时组合加载，仅刷新页面不足以生效。
 
 详细安装、故障排查与升级说明见 [docs/INSTALL.md](docs/INSTALL.md)。
 
