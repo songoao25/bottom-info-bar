@@ -121,7 +121,7 @@ check('加载中仅首帧且无数据时显示（渲染守卫）', clientSrc.inc
 check('全局降级提示存在（部分数据刷新失败）', clientSrc.includes('部分数据刷新失败'), true);
 check('余额块 RPC 失败且无旧数据 → 失败信息（只降级余额块）', clientSrc.includes("'余额获取失败：' + errors.balance"), true);
 check('余额块失败保留旧快照提示（host 快照失败 / RPC 失败共用）', clientSrc.includes('bal.error || errors.balance'), true);
-check('订阅块 RPC 失败且无旧数据 → 失败信息而非永久加载中', clientSrc.includes("'订阅额度获取失败：' + errors.sub"), true);
+check('订阅块 RPC 失败且无旧数据 → 只显示刷新失败并提供悬停说明', clientSrc.includes("'⚠ 刷新失败'") && clientSrc.includes('subscriptionFailureHint'), true);
 check('订阅块失败保留旧快照提示（host 快照失败 / RPC 失败共用）', clientSrc.includes('sub.error || errors.sub'), true);
 check('花费块 RPC 失败且无旧数据 → 降级提示', clientSrc.includes("'花费获取失败：' + errors.usage"), true);
 

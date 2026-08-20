@@ -217,7 +217,7 @@ check('client 三窗口显示剩余百分比（紧凑标签+加粗数值）', cl
 check('client compact 密度精简为最紧窗口', clientSrc.includes('const visible = full ? windows : (displayWindow ? [displayWindow] : []);'), true);
 check('client 无快照时显示加载中（RPC 未返回分支）', subFn.includes("'订阅额度加载中…'"), true);
 check('client 窗口渲染由 hasData 门控（空窗口跳过不占位）', subFn.includes('if (hasData) {'), true);
-check('client 未配置 OpenCode Go 引导文案', clientSrc.includes('未配置 OpenCode Go → 设置→模型 填写 OPENCODE_GO_API_KEY'), true);
+check('client 订阅失败原因统一通过悬停说明', clientSrc.includes('subscriptionFailureHint') && clientSrc.includes('请检查网络并稍后再试'), true);
 check('client 预警阈值常量 = 20（剩余 ≤20% 即告警，与 host 余额 ALERT_THRESHOLD=20 一致）', clientSrc.includes('const LOW_QUOTA_PERCENT = 20'), true);
 check('client 预警触发条件：已用 ≥80%（剩余 ≤20%）告警', clientSrc.includes('w.usedPercent >= (100 - LOW_QUOTA_PERCENT)'), true);
 check('client 距重置倒计时（天级格式 fmtResetCountdown，与显示的窗口一致）', clientSrc.includes("'距重置 ', num(fmtResetCountdown(displayWindow.resetsAt - now))"), true);
@@ -238,7 +238,7 @@ check('client 订阅制不显示时段（高峰价/空闲价）', subFn.includes
 check('client 订阅制不显示距高峰倒计时', subFn.includes('距高峰'), false);
 check('client 订阅制不显示本对话花费', subFn.includes('本对话 '), false);
 check('client 订阅制不显示本对话 token 用量（subtok 已移除）', subFn.includes('subtok'), false);
-check('client 刷新失败保留上次快照提示', clientSrc.includes('⚠ 刷新失败，显示上次快照'), true);
+check('client 刷新失败只显示简短标签并提供悬停说明', clientSrc.includes('⚠ 刷新失败') && clientSrc.includes('subscriptionFailureHint'), true);
 
 // ---- 7) host RPC 完整性静态检查 ----
 check('host 含 getBillingMode RPC', hostSrc.includes('getBillingMode: function'), true);
