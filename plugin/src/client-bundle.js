@@ -609,7 +609,7 @@ module.exports = {
 
       if (updateInfo && updateInfo.available === true) {
          groups.push(React.createElement('span', {
-           className: 'bi-update', key: 'update', title: '请提醒你的 Agent 将此插件更新到“' + updateInfo.latest + '”',
+           className: 'bi-update', key: 'update', title: '请告知你的 Agent 将本插件更新到“' + updateInfo.latest + '”版本。',
          }, '新版本提醒'));
        }
 

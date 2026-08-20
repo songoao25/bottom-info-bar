@@ -32,7 +32,7 @@ check('host 只启动一次版本检查 Promise', host.includes('const updateInf
 check('host 暴露 getUpdateInfo RPC', host.includes('getUpdateInfo: function ()') && host.includes('return updateInfoPromise'))
 check('client 只调用一次 getUpdateInfo', (client.match(/rpc\('getUpdateInfo'/g) || []).length === 1)
 check('client 只在有更新时显示新版本提醒文字', client.includes("'新版本提醒'") && client.includes('updateInfo.available === true'))
-check('更新标签提示语包含动态最新版本号', client.includes("title: '请提醒你的 Agent 将此插件更新到“' + updateInfo.latest + '”'"))
+check('更新标签提示语包含动态最新版本号', client.includes("title: '请告知你的 Agent 将本插件更新到“' + updateInfo.latest + '”版本。'"))
 check('更新标签使用红色、加粗、下划线', client.includes('.bi-update{ color: var(--dsw-alias-state-error-primary')
   && client.includes('font-weight: 700') && client.includes('text-decoration: underline'))
 check('更新标签不是链接或按钮', !client.includes('window.open') && !client.includes("<a") && !client.includes("'a'"))
