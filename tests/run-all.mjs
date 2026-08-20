@@ -23,10 +23,13 @@ console.log('build OK → lib/')
 const cases = [
   ['smoke-static-host', ['tests/smoke-static-host.mjs'], join(root), process.execPath],
   ['test-static-client（plugin/src/client-bundle.js）', ['tests/test-static-client.js'], join(root), process.execPath],
+  ['test-client-fault-tolerance（client-bundle.js 失败处理原子性）', ['tests/test-client-fault-tolerance.js'], join(root), process.execPath],
   ['test-display-name（host.js）', ['tests/test-display-name.js'], join(root), process.execPath],
   ['test-density-toggle（host.js + client-bundle.js）', ['tests/test-density-toggle.js'], join(root), process.execPath],
   ['test-spend-accounting（host.js）', ['tests/test-spend-accounting.js'], join(root), process.execPath],
   ['test-dual-mode（host.js 双模式逻辑 + client 订阅渲染）', ['tests/test-dual-mode.js'], join(root), process.execPath],
+  ['test-usage-sanitize（host.js 记账数值清洗）', ['tests/test-usage-sanitize.js'], join(root), process.execPath],
+  ['test-host-regressions（host.js 审计必修项回归）', ['tests/test-host-regressions.mjs'], join(root), process.execPath],
   ['check-host（host.js）', ['tests/check-host.js', HOST], join(root), process.execPath],
 ]
 
