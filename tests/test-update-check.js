@@ -19,7 +19,13 @@ check('实际拒绝预发布版本号', stableVersion('1.4.1-rc.1') === null)
 check('实际比较新版本大于当前版本', compareVersions('1.4.1', '1.4.0') > 0)
 check('实际比较相同版本', compareVersions('1.4.0', '1.4.0') === 0)
 check('实际比较旧版本小于当前版本', compareVersions('1.3.9', '1.4.0') < 0)
-check('host 使用固定 NPM registry 地址', host.includes("https://registry.npmjs.org/dsh-bottom-info-bar/latest"))
+const registryMatch = host.match(/const UPDATE_REGISTRY_URL = '([^']+)'/)
+let registryUrl = null
+try { registryUrl = registryMatch ? new URL(registryMatch[1]) : null } catch { /* 静态检查失败 */ }
+check('host 使用固定 NPM registry 地址', !!registryUrl
+  && registryUrl.protocol === 'https:'
+  && registryUrl.hostname === 'registry.npmjs.org'
+  && registryUrl.pathname === '/dsh-bottom-info-bar/latest')
 check('host 从 package.json 动态读取当前版本', host.includes("new URL('../package.json', import.meta.url)") && host.includes('packageVersion()'))
 check('host 版本检查有 5 秒超时', host.includes('UPDATE_CHECK_TIMEOUT_MS = 5000') && host.includes('controller.abort()'))
 check('host 只启动一次版本检查 Promise', host.includes('const updateInfoPromise = checkLatestVersion()'))

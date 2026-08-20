@@ -101,7 +101,10 @@ async function feedUsage(listener, usage, opts) {
 // fetch 桩：DeepSeek 余额 API 返回 88.5 CNY；版本检查返回当前版本，避免混入余额 API 调用计数。
 let fetchCalls = 0
 globalThis.fetch = async (url) => {
-  if (String(url).includes('registry.npmjs.org')) {
+  let parsedUrl = null
+  try { parsedUrl = new URL(String(url)) } catch { /* 余额测试的 URL 桩继续走下方分支 */ }
+  if (parsedUrl && parsedUrl.protocol === 'https:' && parsedUrl.hostname === 'registry.npmjs.org'
+      && parsedUrl.pathname === '/dsh-bottom-info-bar/latest') {
     return { ok: true, status: 200, json: async () => ({ version: '1.4.0' }) }
   }
   fetchCalls += 1
