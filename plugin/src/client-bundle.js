@@ -111,7 +111,7 @@ function installStyles() {
       .bi-offpeak { color: var(--dsw-alias-state-success-primary, #16a34a); font-weight: 700; }
       .bi-err  { color: var(--dsw-alias-state-error-primary, #dc2626); }
       .bi-stale{ color: var(--dsw-alias-state-warn-primary, #d97706); }
-       .bi-update{ color: var(--dsw-alias-state-error-primary, #dc2626); }
+       .bi-update{ color: var(--dsw-alias-state-error-primary, #dc2626); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
     `;
   document.head.appendChild(style);
   return function () { style.remove(); };
@@ -480,14 +480,29 @@ module.exports = {
 
       // ---- 订阅制模式（互斥替换余额制版，row2 只三类信息）：
       //      订阅服务+模型 → 三窗口额度 → 距重置倒计时（最紧窗口）；余额/时段/花费/token 均不显示 ----
-      function pushSubscriptionGroups(groups) {
+      function subscriptionFailureHint(error, source) {
+         const kind = error && error.kind;
+         const serviceName = source === 'opencode-go' ? 'OpenCode Go' : 'ChatGPT';
+         const message = error && typeof error.message === 'string' ? error.message : '';
+         const statusMatch = message.match(/HTTP (\d{3})/);
+         const status = statusMatch ? statusMatch[1] : '';
+         if (kind === 'no-key') return '原因：未找到 ' + serviceName + ' 订阅登录凭证。解决：请重新授权 ' + serviceName + '。';
+         if (kind === 'auth' || status === '401') return '原因：' + serviceName + ' 登录凭证已失效。解决：请重新授权 ' + serviceName + '。';
+         if (status === '403') return '原因：' + serviceName + ' 接口拒绝访问。解决：请重新授权，或稍后再试。';
+         if (status === '429') return '原因：' + serviceName + ' 接口请求过于频繁。解决：请稍后再试，避免频繁刷新。';
+         if (kind === 'timeout' || /timeout|timed out|abort/i.test(message)) return '原因：' + serviceName + ' 额度接口响应超时。解决：请检查网络并稍后再试。';
+         if (kind === 'parse') return '原因：' + serviceName + ' 返回的数据格式暂时无法识别。解决：请稍后再试，或更新插件。';
+         return '原因：' + serviceName + ' 额度接口暂时不可用。解决：请检查网络并稍后再试。';
+       }
+
+       function pushSubscriptionGroups(groups) {
         groups.push(subscriptionProviderGroup());
         const sub = state.sub;
         const errors = state.errors || {};
         if (!sub) {
           if (errors.sub) {
             // 本次 RPC 失败且无旧数据：显示失败信息而非永久"加载中…"
-            groups.push(React.createElement('span', { className: 'bi-err', key: 'suberr' }, '订阅额度获取失败：' + errors.sub));
+            groups.push(React.createElement('span', { className: 'bi-stale', key: 'suberr', title: subscriptionFailureHint({ kind: 'exception', message: String(errors.sub) }) }, '⚠ 刷新失败'));
           } else {
             groups.push(React.createElement('span', { key: 'subload' }, '订阅额度加载中…'));
           }
@@ -502,14 +517,7 @@ module.exports = {
         // no-key（无令牌/缺 access_token）与 auth（令牌失效 401）→ 统一"未绑定/重新绑定"引导——
         // 令牌由独立插件 dsh-chatgpt-subscription 维护，本插件只读令牌显示额度，不自行绑定/续期
         if (sub.error && !hasData) {
-          if (sub.error.kind === 'no-key' || sub.error.kind === 'auth') {
-            const hint = sub.source === 'opencode-go'
-              ? '未配置 OpenCode Go → 设置→模型 填写 OPENCODE_GO_API_KEY'
-              : '未绑定 ChatGPT 订阅 → 安装 dsh-chatgpt-subscription 插件授权绑定';
-            groups.push(React.createElement('span', { className: 'bi-err', key: 'subnokey' }, hint));
-          } else {
-            groups.push(React.createElement('span', { className: 'bi-err', key: 'suberr' }, '订阅额度获取失败：' + sub.error.message));
-          }
+          groups.push(React.createElement('span', { className: 'bi-stale', key: 'substale', title: subscriptionFailureHint(sub.error, sub.source) }, '⚠ 刷新失败'));
           return;
         }
         // 窗口缺失（如 Codex 无 5 小时窗口）→ 跳过窗口组，不占位、不报错
@@ -556,7 +564,7 @@ module.exports = {
           ));
           // host 快照失败（sub.error）或本次 RPC 失败（errors.sub）→ 均保留旧数据 + 降级标记
           if (sub.error || errors.sub) {
-            groups.push(React.createElement('span', { className: 'bi-stale', key: 'substale', title: '订阅数据暂不可用，已保留最近一次成功的数据；自动重试中' }, '⚠ 刷新失败，显示上次快照'));
+            groups.push(React.createElement('span', { className: 'bi-stale', key: 'substale', title: subscriptionFailureHint(sub.error || { kind: 'exception', message: String(errors.sub || '') }) }, '⚠ 刷新失败'));
           }
           // 距重置倒计时（与显示的窗口一致，确保额度与倒计时匹配）
           if (displayWindow && displayWindow.resetsAt) {
@@ -600,7 +608,9 @@ module.exports = {
       }
 
       if (updateInfo && updateInfo.available === true) {
-         groups.push(React.createElement('span', { className: 'bi-update', key: 'update' }, '↑ ' + updateInfo.latest));
+         groups.push(React.createElement('span', {
+           className: 'bi-update', key: 'update', title: '请提醒你的 Agent 将此插件更新到“' + updateInfo.latest + '”',
+         }, '新版本提醒'));
        }
 
        // ---- 组装 ----
