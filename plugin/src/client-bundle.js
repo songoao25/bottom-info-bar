@@ -111,6 +111,7 @@ function installStyles() {
       .bi-offpeak { color: var(--dsw-alias-state-success-primary, #16a34a); font-weight: 700; }
       .bi-err  { color: var(--dsw-alias-state-error-primary, #dc2626); }
       .bi-stale{ color: var(--dsw-alias-state-warn-primary, #d97706); }
+       .bi-update{ color: var(--dsw-alias-state-error-primary, #dc2626); }
     `;
   document.head.appendChild(style);
   return function () { style.remove(); };
@@ -191,7 +192,8 @@ module.exports = {
         loading: true, balance: null, pricing: null, usage: null, billingMode: null, sub: null,
         errors: { balance: null, pricing: null, usage: null, billingMode: null, sub: null },
       });
-      const [now, setNow] = React.useState(Date.now());
+      const [updateInfo, setUpdateInfo] = React.useState(null);
+       const [now, setNow] = React.useState(Date.now());
 
       // 当前会话 ID 多路获取：slotProps 标准 kit → session 快照 → 运行时 sessions 服务
       // （DSH 各版本注入方式不同，任一路可用即拿到真实会话 ID，避免回退到上一会话的账）
@@ -240,7 +242,16 @@ module.exports = {
         return function () { window.clearInterval(id); };
       }, [load]);
 
-      // 模型/服务商切换秒级同步：getBillingMode 为 host 端纯本地计算（零网络开销），每 2 秒轮询一次；
+      // 版本检查由 host 在进程启动时完成；这里仅读取一次缓存，不轮询 NPM。
+       React.useEffect(function () {
+         let active = true;
+         rpc('getUpdateInfo').then(function (info) {
+           if (active && info && info.available === true && typeof info.latest === 'string') setUpdateInfo(info);
+         }).catch(function () { /* 版本检查失败静默，不影响信息栏 */ });
+         return function () { active = false; };
+       }, []);
+
+       // 模型/服务商切换秒级同步：getBillingMode 为 host 端纯本地计算（零网络开销），每 2 秒轮询一次；
       // mode/provider/model 任一变化（即切换了模型/服务商）→ 立即完整 load()，不等 30s 主轮询。
       // 注意：本轮询不触碰订阅接口——getSubscriptionSnapshot 仍仅由 load 调用（惰性门控 + 60s 周期不变）
       React.useEffect(function () {
@@ -588,7 +599,11 @@ module.exports = {
           '⚠ 部分数据刷新失败'));
       }
 
-      // ---- 组装 ----
+      if (updateInfo && updateInfo.available === true) {
+         groups.push(React.createElement('span', { className: 'bi-update', key: 'update' }, '↑ ' + updateInfo.latest));
+       }
+
+       // ---- 组装 ----
       const sepNodes = [];
       const nodes = [];
       for (let i = 0; i < groups.length; i++) {

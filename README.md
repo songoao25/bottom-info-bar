@@ -73,6 +73,7 @@ For detailed installation, troubleshooting, and upgrade instructions, see [docs/
 
 - **Hover** the bar for details: balance, per-token pricing, next price-switch time, and this-conversation spend (today / this month / all time).
 - **Click** the bar to toggle between full and compact modes.
+- **Version reminder**: once per full DSH startup, the plugin checks NPM; if a newer version exists, it shows a red `↑ vX.Y.Z` label. The label only reminds you and never updates code automatically; tell an Agent with local terminal access to help update it.
 
 ## Configuration
 

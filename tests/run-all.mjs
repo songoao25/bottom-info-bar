@@ -30,6 +30,7 @@ const cases = [
   ['test-dual-mode（host.js 双模式逻辑 + client 订阅渲染）', ['tests/test-dual-mode.js'], join(root), process.execPath],
   ['test-usage-sanitize（host.js 记账数值清洗）', ['tests/test-usage-sanitize.js'], join(root), process.execPath],
   ['test-host-regressions（host.js 审计必修项回归）', ['tests/test-host-regressions.mjs'], join(root), process.execPath],
+  ['test-update-check（启动版本检查与红色提醒）', ['tests/test-update-check.js'], join(root), process.execPath],
   ['check-host（host.js）', ['tests/check-host.js', HOST], join(root), process.execPath],
 ]
 
