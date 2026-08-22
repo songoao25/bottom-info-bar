@@ -97,7 +97,7 @@ function installStyles() {
   style.dataset.plugin = 'dsh-bottom-info-bar';
   style.dataset.pluginCss = id;
   style.textContent = `
-      .bi-root { --bi-label-primary: var(--dsw-alias-label-primary, #333); --bi-label-tertiary: var(--dsw-alias-label-tertiary, rgba(128,128,128,0.9)); --bi-separator: var(--dsw-alias-separator-primary, rgba(128,128,128,0.5)); --bi-state-price-high: var(--dsw-alias-state-warn-primary, #d97706); --bi-state-price-low: var(--dsw-alias-state-success-primary, #16a34a); --bi-state-warning: var(--dsw-alias-state-warn-primary, #d97706); --bi-state-error: var(--dsw-alias-state-error-primary, #dc2626); --bi-state-info: var(--dsw-alias-state-info-primary, var(--dsw-alias-label-primary, #333)); text-align: center; max-width: var(--dsh-chat-content-width); box-sizing: border-box; width: 100%; padding: 4px calc(var(--dsh-composer-side-clearance) + 16px) 0px; margin: 0 auto; display: block; overflow: hidden; font-size: 12px; line-height: 20px; color: var(--bi-label-tertiary); font-variant-numeric: tabular-nums; cursor: pointer; }
+      .bi-root { --bi-label-primary: var(--dsw-alias-label-primary, #333); --bi-label-tertiary: var(--dsw-alias-label-tertiary, rgba(128,128,128,0.9)); --bi-separator: var(--dsw-alias-separator-primary, rgba(128,128,128,0.5)); --bi-state-price-low: var(--dsw-alias-state-success-primary, #16a34a); --bi-state-warning: var(--dsw-alias-state-warn-primary, #d97706); --bi-state-error: var(--dsw-alias-state-error-primary, #dc2626); --bi-state-info: var(--dsw-alias-state-info-primary, var(--dsw-alias-label-primary, #333)); text-align: center; max-width: var(--dsh-chat-content-width); box-sizing: border-box; width: 100%; padding: 4px calc(var(--dsh-composer-side-clearance) + 16px) 0px; margin: 0 auto; display: block; overflow: hidden; font-size: 12px; line-height: 20px; color: var(--bi-label-tertiary); font-variant-numeric: tabular-nums; cursor: pointer; }
       .bi-native-row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; width: 100%; }
       .bi-row2 { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; width: 100%; }
       .bi-native-row > span, .bi-row2 > span { white-space: nowrap; }
@@ -106,11 +106,13 @@ function installStyles() {
       .bi-root b { color: var(--bi-label-primary); font-weight: 600; }
       /* 数字：加粗 700（余额/倒计时/本对话花费/原生统计数字） */
       .bi-root b.bi-num { font-weight: 700; }
-      /* 高峰价：琥珀色 + 加粗；空闲价：绿色 + 加粗 */
-      .bi-peak    { color: var(--bi-state-price-high); font-weight: 700; }
+      /* 高峰价用主文字保证小字号可读；空闲价以绿色辅助“更优惠”的文字含义。 */
+      .bi-peak    { color: var(--bi-label-primary); font-weight: 700; }
       .bi-offpeak { color: var(--bi-state-price-low); font-weight: 700; }
-      .bi-err  { color: var(--bi-state-error); }
-      .bi-stale{ color: var(--bi-state-warning); }
+      .bi-err  { color: var(--bi-state-error); font-weight: 600; }
+      .bi-stale{ color: var(--bi-state-warning); font-weight: 600; }
+      .bi-muted{ color: var(--bi-label-tertiary); }
+      .bi-quota-low { color: var(--bi-state-warning); font-weight: 700; }
       /* 有新版本是可处理的信息，不是错误，也不是链接。 */
       .bi-update{ color: var(--bi-state-info); font-weight: 600; }
     `;
@@ -416,28 +418,28 @@ module.exports = {
 
         // 余额（纯金额；hover 仅展示余额，不显示充值/赠金）
         if (bal && bal.error && bal.error.kind === 'no-key') {
-          groups.push(React.createElement('span', { className: 'bi-err', key: 'nokey' },
+          groups.push(React.createElement('span', { className: 'bi-err', key: 'nokey', title: '未配置 DeepSeek API Key。请在“设置 → 模型”中填写。' },
             '未配置 DEEPSEEK_API_KEY → 设置→模型 填写'));
         } else if (bal && bal.data) {
           const symbol = bal.currency === 'USD' ? '$' : '¥';
           const balTitle = bal.estimate
-            ? '余额为估算值（起始充值额减累计花费）：' + symbol + fmt(bal.data.total)
+            ? '估算余额：' + symbol + fmt(bal.data.total)
             : '余额：' + symbol + fmt(bal.data.total);
           groups.push(React.createElement('span', { key: 'bal', title: balTitle },
             '余额 ',
             num(symbol + fmt(bal.data.total)),
-            bal.estimate ? React.createElement('span', { className: 'bi-stale' }, '（估算）') : null,
-            alertActive ? React.createElement('span', { className: 'bi-err', title: '余额低于阈值' }, ' ⚠') : null,
+            bal.estimate ? React.createElement('span', { className: 'bi-muted' }, '（估算）') : null,
+            alertActive ? React.createElement('span', { className: 'bi-err', title: '余额低于预警阈值。' }, ' ⚠') : null,
           ));
           // host 快照失败（bal.error）或本次 RPC 失败（errors.balance）→ 均保留旧数据 + 降级标记
           if (bal.error || errors.balance) {
-            groups.push(React.createElement('span', { className: 'bi-stale', key: 'balerr', title: '余额数据暂不可用，已保留最近一次成功的数据；自动重试中' }, '⚠ 刷新失败，显示上次快照'));
+            groups.push(React.createElement('span', { className: 'bi-stale', key: 'balerr', title: '余额暂不可用；正在显示上次数据并自动重试。' }, '⚠ 刷新失败'));
           }
         } else if (bal && bal.error) {
-          groups.push(React.createElement('span', { className: 'bi-err', key: 'berr' }, '余额获取失败：' + bal.error.message));
+          groups.push(React.createElement('span', { className: 'bi-err', key: 'berr', title: '余额获取失败。请检查网络和 API Key。' }, '余额获取失败'));
         } else if (errors.balance) {
           // 本次 RPC 失败且无旧数据：只降级余额块，其余端点数据照常渲染
-          groups.push(React.createElement('span', { className: 'bi-err', key: 'berr' }, '余额获取失败：' + errors.balance));
+          groups.push(React.createElement('span', { className: 'bi-err', key: 'berr', title: '余额获取失败。请检查网络和 API Key。' }, '余额获取失败'));
         }
 
         // 时段：仅峰谷价服务商显示"高峰价/空闲价"（flat/unknown 服务商不显示；hover 展示具体价格）
@@ -445,7 +447,7 @@ module.exports = {
         if (pr && pr.mode === 'peak-valley') {
           const peakNow = pr.period === 'peak';
           const p = pr.prices || {};
-          const periodTitle = (peakNow ? '高峰价' : '空闲价') + '：输入 ¥' + (p.inputCacheMiss != null ? p.inputCacheMiss : '?')
+          const periodTitle = '北京时间 ' + (peakNow ? '高峰价' : '空闲价') + '：输入 ¥' + (p.inputCacheMiss != null ? p.inputCacheMiss : '?')
             + '/M · 缓存 ¥' + (p.inputCacheHit != null ? p.inputCacheHit : '?')
             + '/M · 输出 ¥' + (p.output != null ? p.output : '?') + '/M';
           groups.push(React.createElement('span', { key: 'period', className: peakNow ? 'bi-peak' : 'bi-offpeak', title: periodTitle },
@@ -455,7 +457,7 @@ module.exports = {
         // 倒计时：仅峰谷价服务商显示"距高峰/距空闲"（hover 展示下次切换时刻；数字加粗）
         if (pr && pr.mode === 'peak-valley' && pr.nextSwitch) {
           const peakNow = pr.period === 'peak';
-          const countdownTitle = '下次切换：' + (peakNow ? '空闲价' : '高峰价') + ' 于 ' + pr.nextSwitch.atLabel;
+          const countdownTitle = '北京时间 ' + pr.nextSwitch.atLabel + ' 切换为' + (peakNow ? '空闲价' : '高峰价') + '。';
           groups.push(React.createElement('span', { key: 'countdown', title: countdownTitle },
             '距' + (peakNow ? '空闲' : '高峰') + ' ',
             num(fmtCountdown(pr.nextSwitch.at - now))));
@@ -481,7 +483,7 @@ module.exports = {
             num(costTxt)));
         } else if (errors.usage) {
           // 本次 RPC 失败且无旧数据：只降级花费块，其余端点数据照常渲染
-          groups.push(React.createElement('span', { className: 'bi-err', key: 'usageerr' }, '花费获取失败：' + errors.usage));
+          groups.push(React.createElement('span', { className: 'bi-err', key: 'usageerr', title: '花费暂不可用；不会影响对话。' }, '花费获取失败'));
         }
       }
 
@@ -493,13 +495,13 @@ module.exports = {
          const message = error && typeof error.message === 'string' ? error.message : '';
          const statusMatch = message.match(/HTTP (\d{3})/);
          const status = statusMatch ? statusMatch[1] : '';
-         if (kind === 'no-key') return '原因：未找到 ' + serviceName + ' 订阅登录凭证。解决：请重新授权 ' + serviceName + '。';
-         if (kind === 'auth' || status === '401') return '原因：' + serviceName + ' 登录凭证已失效。解决：请重新授权 ' + serviceName + '。';
-         if (status === '403') return '原因：' + serviceName + ' 接口拒绝访问。解决：请重新授权，或稍后再试。';
-         if (status === '429') return '原因：' + serviceName + ' 接口请求过于频繁。解决：请稍后再试，避免频繁刷新。';
-         if (kind === 'timeout' || /timeout|timed out|abort/i.test(message)) return '原因：' + serviceName + ' 额度接口响应超时。解决：请检查网络并稍后再试。';
-         if (kind === 'parse') return '原因：' + serviceName + ' 返回的数据格式暂时无法识别。解决：请稍后再试，或更新插件。';
-         return '原因：' + serviceName + ' 额度接口暂时不可用。解决：请检查网络并稍后再试。';
+         if (kind === 'no-key') return '未找到 ' + serviceName + ' 登录凭证。请重新授权。';
+         if (kind === 'auth' || status === '401') return serviceName + ' 登录凭证已失效。请重新授权。';
+         if (status === '403') return serviceName + ' 拒绝访问。请重新授权或稍后再试。';
+         if (status === '429') return serviceName + ' 请求过于频繁。请稍后再试。';
+         if (kind === 'timeout' || /timeout|timed out|abort/i.test(message)) return serviceName + ' 响应超时。请检查网络后再试。';
+         if (kind === 'parse') return serviceName + ' 返回的数据暂时无法识别。请稍后再试。';
+         return serviceName + ' 暂不可用。请检查网络后再试。';
        }
 
        function pushSubscriptionGroups(groups) {
@@ -544,7 +546,7 @@ module.exports = {
           // 完整模式显示全部窗口；简洁模式只显示选中的那个窗口
           const visible = full ? windows : (displayWindow ? [displayWindow] : []);
           
-          // 预警触发条件：已用 ≥80%（= 剩余 ≤20%）→ 琥珀色；否则绿色
+          // 预警触发条件：已用 ≥80%（= 剩余 ≤20%）→ 琥珀色 + ⚠；正常额度使用中性文字。
           const LOW_QUOTA_PERCENT = 20;
           const alarmWindows = windows.filter(function (w) { return w.usedPercent >= (100 - LOW_QUOTA_PERCENT); });
           const titleLines = ['订阅源：' + subscriptionServiceName(state.billingMode && state.billingMode.provider) + (sub.plan ? '（' + sub.plan + '）' : '')]
@@ -557,7 +559,7 @@ module.exports = {
             const w = visible[i];
             if (i > 0) winNodes.push(' · ');
             const remaining = remainingPercent(w);
-            const colorClass = remaining <= LOW_QUOTA_PERCENT ? 'bi-peak' : 'bi-offpeak';
+            const colorClass = remaining <= LOW_QUOTA_PERCENT ? 'bi-quota-low' : '';
             winNodes.push(compactWindowLabel(w.key) + ' ', React.createElement('span', { className: colorClass }, num(remaining + '%')));
           }
           groups.push(React.createElement('span', { key: 'subwin', title: titleLines.join('\n') },
@@ -610,7 +612,7 @@ module.exports = {
       if (errors.sub) failedLabels.push('订阅额度');
       if (failedLabels.length > 0) {
         groups.push(React.createElement('span', { className: 'bi-stale', key: 'degraded',
-          title: '以下数据暂不可用：' + failedLabels.join('、') + '（已保留上次成功数据，自动重试中）' },
+          title: failedLabels.join('、') + '暂不可用；正在保留上次数据并自动重试。' },
           '⚠ 部分数据刷新失败'));
       }
 

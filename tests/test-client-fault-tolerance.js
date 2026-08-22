@@ -119,11 +119,11 @@ check('无 reason 的失败兜底为 RPC 失败', bareFail.errors.balance, 'RPC 
 check('整栏 fatal 分支已移除（不再整栏"加载失败"）', !clientSrc.includes('state.fatal'), true);
 check('加载中仅首帧且无数据时显示（渲染守卫）', clientSrc.includes('if (state.loading && !hasAnyData) {'), true);
 check('全局降级提示存在（部分数据刷新失败）', clientSrc.includes('部分数据刷新失败'), true);
-check('余额块 RPC 失败且无旧数据 → 失败信息（只降级余额块）', clientSrc.includes("'余额获取失败：' + errors.balance"), true);
+check('余额块 RPC 失败且无旧数据 → 简短失败信息（只降级余额块）', clientSrc.includes("title: '余额获取失败。请检查网络和 API Key。'"), true);
 check('余额块失败保留旧快照提示（host 快照失败 / RPC 失败共用）', clientSrc.includes('bal.error || errors.balance'), true);
 check('订阅块 RPC 失败且无旧数据 → 只显示刷新失败并提供悬停说明', clientSrc.includes("'⚠ 刷新失败'") && clientSrc.includes('subscriptionFailureHint'), true);
 check('订阅块失败保留旧快照提示（host 快照失败 / RPC 失败共用）', clientSrc.includes('sub.error || errors.sub'), true);
-check('花费块 RPC 失败且无旧数据 → 降级提示', clientSrc.includes("'花费获取失败：' + errors.usage"), true);
+check('花费块 RPC 失败且无旧数据 → 简短降级提示', clientSrc.includes("title: '花费暂不可用；不会影响对话。'"), true);
 
 console.log('\n结果：' + pass + ' PASS / ' + fail + ' FAIL');
 process.exit(fail > 0 ? 1 : 0);

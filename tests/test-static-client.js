@@ -42,5 +42,12 @@ check('client 空值兜底返回空串（host 对空串返回 null）', clientSr
 check('client 监听会话统计变化触发 load', clientSrc.includes('statsProj && statsProj.turns'), true);
 check('client 防抖 800ms 刷新', clientSrc.includes('window.setTimeout(load, 800)'), true);
 
+// 6) UI 语义：颜色不单独表达状态，正常额度和估算值不误用成功/警告色
+check('估算余额使用中性说明色', clientSrc.includes("className: 'bi-muted'"), true);
+check('正常订阅额度不使用绿色成功色', clientSrc.includes("remaining <= LOW_QUOTA_PERCENT ? 'bi-quota-low' : ''"), true);
+check('高峰价使用主文字保证小字号可读', clientSrc.includes('.bi-peak    { color: var(--bi-label-primary); font-weight: 700; }'), true);
+check('错误与警告保留语义色和字重', clientSrc.includes('.bi-err  { color: var(--bi-state-error); font-weight: 600; }')
+  && clientSrc.includes('.bi-stale{ color: var(--bi-state-warning); font-weight: 600; }'), true);
+
 console.log('\n结果：' + pass + ' PASS / ' + fail + ' FAIL');
 process.exit(fail > 0 ? 1 : 0);

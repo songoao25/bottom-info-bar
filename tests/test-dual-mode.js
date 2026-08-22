@@ -217,7 +217,7 @@ check('client 三窗口显示剩余百分比（紧凑标签+加粗数值）', cl
 check('client compact 密度精简为最紧窗口', clientSrc.includes('const visible = full ? windows : (displayWindow ? [displayWindow] : []);'), true);
 check('client 无快照时显示加载中（RPC 未返回分支）', subFn.includes("'订阅额度加载中…'"), true);
 check('client 窗口渲染由 hasData 门控（空窗口跳过不占位）', subFn.includes('if (hasData) {'), true);
-check('client 订阅失败原因统一通过悬停说明', clientSrc.includes('subscriptionFailureHint') && clientSrc.includes('请检查网络并稍后再试'), true);
+check('client 订阅失败原因统一通过简短悬停说明', clientSrc.includes('subscriptionFailureHint') && clientSrc.includes('请检查网络后再试'), true);
 check('client 预警阈值常量 = 20（剩余 ≤20% 即告警，与 host 余额 ALERT_THRESHOLD=20 一致）', clientSrc.includes('const LOW_QUOTA_PERCENT = 20'), true);
 check('client 预警触发条件：已用 ≥80%（剩余 ≤20%）告警', clientSrc.includes('w.usedPercent >= (100 - LOW_QUOTA_PERCENT)'), true);
 check('client 距重置倒计时（天级格式 fmtResetCountdown，与显示的窗口一致）', clientSrc.includes("'距重置 ', num(fmtResetCountdown(displayWindow.resetsAt - now))"), true);
