@@ -201,7 +201,10 @@ module.exports = {
       });
       // 版本信息由 host 在启动时从 package.json 读取；无论是否有新版，都用于服务商/模型 hover 展示。
       const [updateInfo, setUpdateInfo] = React.useState(null);
-       const [now, setNow] = React.useState(Date.now());
+      const [now, setNow] = React.useState(Date.now());
+      // This state is owned by DSH's per-session model selector, not by the
+      // process-wide default for newly-created Agents.
+      const [sessionModel, setSessionModel] = React.useState(null);
 
       // 当前会话 ID 多路获取：slotProps 标准 kit → session 快照 → 运行时 sessions 服务
       // （DSH 各版本注入方式不同，任一路可用即拿到真实会话 ID，避免回退到上一会话的账）
@@ -218,6 +221,39 @@ module.exports = {
         } catch (e) { /* 拿不到则返回空串，host 端对空串返回 null（显示 ¥0.000） */ }
         return '';
       }, []);
+      const sessionId = resolveSessionId();
+
+      // Subscribe to the exact store the native model seat uses.  A session
+      // activation or a successful model switch publishes here immediately;
+      // no polling and no host HTTP request sit on the display path.
+      React.useEffect(function () {
+        let stop = null;
+        let active = true;
+        setSessionModel(null);
+        if (!sessionId) return function () {};
+        try {
+          const directories = ctx.get ? ctx.get('modelDirectories') : null;
+          if (!directories || typeof directories.directoryFor !== 'function') return function () {};
+          const directory = directories.directoryFor(sessionId);
+          const publish = function () {
+            if (!active || !directory.store || typeof directory.store.getSnapshot !== 'function') return;
+            const snapshot = directory.store.getSnapshot();
+            const selected = snapshot && snapshot.current;
+            if (!selected || typeof selected.provider !== 'string' || typeof selected.model !== 'string') return;
+            const group = Array.isArray(snapshot.groups) ? snapshot.groups.find(function (g) { return g && g.id === selected.provider; }) : null;
+            const model = group && Array.isArray(group.models) ? group.models.find(function (m) { return m && m.id === selected.model; }) : null;
+            setSessionModel({
+              provider: selected.provider,
+              model: selected.model,
+              providerDisplay: group && typeof group.name === 'string' ? group.name : selected.provider,
+              modelDisplay: model && typeof model.name === 'string' ? model.name : selected.model,
+            });
+          };
+          publish();
+          if (directory.store && typeof directory.store.subscribe === 'function') stop = directory.store.subscribe(publish);
+        } catch (err) { /* old DSH: retain the RPC fallback */ }
+        return function () { active = false; if (typeof stop === 'function') stop(); };
+      }, [sessionId]);
 
       // 组件生命周期 AbortSignal：卸载时中止所有在途 RPC（配合 rpc 20s 超时，双保险防旧响应写 state）
       const abortRef = React.useRef(null);
@@ -227,22 +263,26 @@ module.exports = {
         return function () { controller.abort(); };
       }, []);
 
-      const load = React.useCallback(function () {
-        const sessionId = resolveSessionId();
+      const loadVersionRef = React.useRef(0);
+      const load = React.useCallback(function (selection) {
+        const requestVersion = ++loadVersionRef.current;
+        const activeSelection = selection || sessionModel;
+        const selectionArgs = activeSelection ? { selection: { provider: activeSelection.provider, model: activeSelection.model } } : {};
         const signal = abortRef.current ? abortRef.current.signal : null;
         // 逐接口容错：allSettled 等全部 settle（最坏 20s 超时兜底），任一失败只降级该端点，
         // 不拖垮其他成功数据；合并逻辑在 mergeLoadResults（失败端点保留旧值 + 记录错误）
         Promise.allSettled([
-          rpc('getBalanceSnapshot', null, signal),
-          rpc('getPricing', null, signal),
-          rpc('getUsageSummary', { sessionId: sessionId }, signal),
-          rpc('getBillingMode', null, signal),
-          rpc('getSubscriptionSnapshot', null, signal),
+          rpc('getBalanceSnapshot', activeSelection ? { provider: activeSelection.provider } : null, signal),
+          rpc('getPricing', selectionArgs, signal),
+          rpc('getUsageSummary', Object.assign({ sessionId: sessionId }, selectionArgs), signal),
+          rpc('getBillingMode', selectionArgs, signal),
+          rpc('getSubscriptionSnapshot', selectionArgs, signal),
         ]).then(function (results) {
-          if (signal && signal.aborted) return; // 组件已卸载：放弃结果，不写 state
+          // Do not allow a late A response to overwrite newly active B.
+          if ((signal && signal.aborted) || requestVersion !== loadVersionRef.current) return;
           setState(function (s) { return mergeLoadResults(s, results); });
         });
-      }, [resolveSessionId]);
+      }, [resolveSessionId, sessionModel, sessionId]);
 
       React.useEffect(function () {
         load();
@@ -259,21 +299,11 @@ module.exports = {
          return function () { active = false; };
        }, []);
 
-       // 模型/服务商切换秒级同步：getBillingMode 为 host 端纯本地计算（零网络开销），每 2 秒轮询一次；
-      // mode/provider/model 任一变化（即切换了模型/服务商）→ 立即完整 load()，不等 30s 主轮询。
-      // 注意：本轮询不触碰订阅接口——getSubscriptionSnapshot 仍仅由 load 调用（惰性门控 + 60s 周期不变）
+      // Model text comes from sessionModel synchronously.  The following load
+      // only refreshes secondary data in the background.
       React.useEffect(function () {
-        let lastKey = null;
-        const id = window.setInterval(function () {
-          rpc('getBillingMode').then(function (bm) {
-            if (!bm || typeof bm.mode !== 'string') return;
-            const key = bm.mode + ':' + (bm.provider || '') + ':' + (bm.model || '');
-            if (lastKey !== null && lastKey !== key) load();
-            lastKey = key;
-          }).catch(function () { /* 轮询失败静默：30s 主轮询兜底 */ });
-        }, 2000);
-        return function () { window.clearInterval(id); };
-      }, [load]);
+        if (sessionModel) load(sessionModel);
+      }, [load, sessionModel]);
 
       // 会话统计变化（回复中 turns/steps/tokens 增长，回复完成时停止）→ 防抖后即时刷新花费，
       // 不等下一个 30s 轮询：用户回复一结束即可看到真实金额
@@ -292,6 +322,18 @@ module.exports = {
         const id = window.setInterval(function () { setNow(Date.now()); }, 1000);
         return function () { window.clearInterval(id); };
       }, []);
+
+      // While background RPCs catch up, render the newly activated session's
+      // model and suppress details from the prior session rather than showing
+      // a convincing but wrong provider/model combination.
+      const visiblePricing = sessionModel && (!state.pricing
+        || state.pricing.provider !== sessionModel.provider || state.pricing.model !== sessionModel.model)
+        ? { provider: sessionModel.provider, model: sessionModel.model, providerDisplay: sessionModel.providerDisplay, modelDisplay: sessionModel.modelDisplay, mode: 'unknown', acceptsImageInput: false }
+        : state.pricing;
+      const visibleBillingMode = sessionModel && (!state.billingMode
+        || state.billingMode.provider !== sessionModel.provider || state.billingMode.model !== sessionModel.model)
+        ? { provider: sessionModel.provider, model: sessionModel.model, mode: ['codex', 'chatgpt', 'opencode-go', 'opencode', 'openai-codex'].indexOf(sessionModel.provider) >= 0 ? 'subscription' : 'balance' }
+        : state.billingMode;
 
       // ---- 与原生一致格式工具 ----
       function formatTokens(n) {
@@ -382,7 +424,7 @@ module.exports = {
       // M5：模型名/服务商名均取 DSH 目录名（与模型切换器完全一致）；当服务商名已是模型名前缀
       // （如 "DeepSeek" + "DeepSeek-V4-Flash"）→ 只显示模型名（切换器样式，避免 "DeepSeek · DeepSeek-V4-Flash" 重复）
       function providerGroup() {
-        const pr = state.pricing;
+        const pr = visiblePricing;
         const provLabel = (pr && pr.providerDisplay) ? pr.providerDisplay : '未知';
         const modelLabel = (pr && pr.modelDisplay) ? pr.modelDisplay
           : (pr && pr.model ? pr.model : '未知模型');
@@ -420,8 +462,8 @@ module.exports = {
 
       // 订阅制模型组：订阅服务名 · 具体模型（如 `OpenCode Go · V4 Flash`、`Codex · GPT 5 Codex`）
       function subscriptionProviderGroup() {
-        const pr = state.pricing;
-        const serviceName = subscriptionServiceName(state.billingMode && state.billingMode.provider);
+        const pr = visiblePricing;
+        const serviceName = subscriptionServiceName(visibleBillingMode && visibleBillingMode.provider);
         const modelLabel = (pr && pr.modelDisplay) ? pr.modelDisplay
           : (pr && pr.model ? pr.model : '未知模型');
         const versionLine = updateInfo && typeof updateInfo.current === 'string'
@@ -467,7 +509,7 @@ module.exports = {
         }
 
         // 时段：仅峰谷价服务商显示"高峰价/空闲价"（flat/unknown 服务商不显示；hover 展示具体价格）
-        const pr = state.pricing;
+        const pr = visiblePricing;
         if (pr && pr.mode === 'peak-valley') {
           const peakNow = pr.period === 'peak';
           const p = pr.prices || {};
@@ -572,7 +614,7 @@ module.exports = {
           
           // 预警触发条件：已用 ≥80%（= 剩余 ≤20%）→ 鲜红色文字；正常额度使用中性文字。
           const LOW_QUOTA_PERCENT = 20;
-          const titleLines = ['订阅源：' + subscriptionServiceName(state.billingMode && state.billingMode.provider) + (sub.plan ? '（' + sub.plan + '）' : '')]
+          const titleLines = ['订阅源：' + subscriptionServiceName(visibleBillingMode && visibleBillingMode.provider) + (sub.plan ? '（' + sub.plan + '）' : '')]
             .concat(windows.map(function (w) {
               return w.label + '窗口：剩余 ' + remainingPercent(w) + '%（已用 ' + w.usedPercent + '%）'
                 + (w.resetsAt ? ' · 重置 ' + formatDateTime(w.resetsAt) + ' · 距重置 ' + fmtResetCountdown(w.resetsAt - now) : '');
@@ -606,7 +648,7 @@ module.exports = {
       // 两态严格判定：density 只能是 'full' 或 'compact'（host 校验 + 本地防抖保证）
       const full = props.density === 'full';
       // 模式互斥：订阅制渲染订阅版 row2，余额制渲染 v1.0.0 现状，绝不叠加
-      const isSub = !!(state.billingMode && state.billingMode.mode === 'subscription');
+      const isSub = !!(visibleBillingMode && visibleBillingMode.mode === 'subscription');
       // 逐接口容错渲染：loading 仅"首帧且无任何数据"时占位；此后始终渲染（旧数据 + 失败降级标记），
       // 绝不整栏"加载失败"；rpc 有 20s 超时兜底，也不存在永久"加载中…"
       const hasAnyData = state.balance !== null || state.pricing !== null || state.usage !== null

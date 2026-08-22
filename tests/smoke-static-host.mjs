@@ -116,6 +116,15 @@ check('webServer 路由已注册（prefix /_dsh/dsh-bottom-info-bar）',
     r.status === 200 && r.payload.providerDisplay === 'DeepSeek' && r.payload.modelDisplay === 'deepseek-v4-flash' && r.payload.mode === 'peak-valley')
 }
 {
+  // 浏览器当前激活会话的选择必须覆盖 process-wide agentDefaultModel。
+  const r = await invoke(first.captured.route, '/_dsh/dsh-bottom-info-bar/getPricing', 'POST', JSON.stringify({ selection: { provider: 'qwen', model: 'qwen-max' } }))
+  check('getPricing 会话选择优先：qwen 不被全局 DeepSeek 默认值覆盖',
+    r.status === 200 && r.payload.provider === 'qwen' && r.payload.model === 'qwen-max' && r.payload.providerDisplay === 'Qwen')
+  const bm = await invoke(first.captured.route, '/_dsh/dsh-bottom-info-bar/getBillingMode', 'POST', JSON.stringify({ selection: { provider: 'chatgpt', model: 'gpt-5' } }))
+  check('getBillingMode 会话选择优先：ChatGPT 会话正确识别订阅制',
+    bm.status === 200 && bm.payload.provider === 'chatgpt' && bm.payload.model === 'gpt-5' && bm.payload.mode === 'subscription')
+}
+{
   const r = await invoke(first.captured.route, '/_dsh/dsh-bottom-info-bar/getUsageSummary', 'POST', JSON.stringify({ sessionId: 's-test' }))
   check('getUsageSummary → 200 + sessions 计数', r.status === 200 && typeof r.payload.sessions === 'number' && typeof r.payload.totalSpend === 'number')
 }

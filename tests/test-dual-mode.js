@@ -210,7 +210,7 @@ function extractClientFnBody(name) {
 }
 const subFn = extractClientFnBody('pushSubscriptionGroups');
 
-check('client 按 billingMode 分支互斥渲染', clientSrc.includes("const isSub = !!(state.billingMode && state.billingMode.mode === 'subscription')"), true);
+check('client 按会话优先的 billingMode 分支互斥渲染', clientSrc.includes("const isSub = !!(visibleBillingMode && visibleBillingMode.mode === 'subscription')"), true);
 check('client 余额制渲染函数独立保留', clientSrc.includes('function pushBalanceGroups(groups, trailingErrorGroups)'), true);
 check('client 订阅制渲染函数存在', clientSrc.includes('function pushSubscriptionGroups(groups, trailingErrorGroups)'), true);
 check('client 三窗口显示剩余百分比（紧凑标签+加粗数值）', clientSrc.includes("winNodes.push(compactWindowLabel(w.key) + ' ', num(remaining + '%', numberClass))"), true);
@@ -232,7 +232,7 @@ check('client 剩余 = 100 - 已用（钳制 ≥0）', clientSrc.includes('retur
 check('client 紧凑标签 five_hour → 5h', clientSrc.includes("if (key === 'five_hour') return '5h';"), true);
 check('client hover 明确写 剩余 xx%（已用 xx%）', clientSrc.includes("'窗口：剩余 ' + remainingPercent(w) + '%（已用 ' + w.usedPercent + '%）'"), true);
 check('client 告急时仅将对应额度数字标为鲜红色', clientSrc.includes("const numberClass = remaining <= LOW_QUOTA_PERCENT ? 'bi-quota-low' : '';"), true);
-check('client 订阅源标题用订阅服务名映射（openai-codex 显示 ChatGPT）', clientSrc.includes("'订阅源：' + subscriptionServiceName(state.billingMode && state.billingMode.provider)"), true);
+check('client 订阅源标题用会话优先的订阅服务名映射（openai-codex 显示 ChatGPT）', clientSrc.includes("'订阅源：' + subscriptionServiceName(visibleBillingMode && visibleBillingMode.provider)"), true);
 check('client 订阅制不显示余额', subFn.includes('余额 '), false);
 check('client 订阅制不显示时段（高峰价/空闲价）', subFn.includes('高峰价'), false);
 check('client 订阅制不显示距高峰倒计时', subFn.includes('距高峰'), false);
@@ -246,16 +246,16 @@ check('host 含 getSubscriptionSnapshot RPC', hostSrc.includes('getSubscriptionS
 check('host getConfig 含 billingMode', hostSrc.includes('billingMode: config.billingMode'), true);
 check('host 双模式纯函数可提取（模块级）', typeof codexWindowKey === 'function' && typeof parseCodexUsage === 'function' && typeof parseOpenCodeGoUsage === 'function' && typeof detectBillingMode === 'function' && typeof mergeSubscriptionResult === 'function', true);
 
-// ---- 8) 模型切换秒级同步（v1.2.0 试用反馈 M3）----
-// host 端 getBillingMode 纯本地：从 RPC 路由体提取，断言无 fetch 调用（2s 高频轮询零网络开销的前提）
+// ---- 8) 会话级实时模型同步 ----
+// host 端 getBillingMode 纯本地：会话选择由客户端已订阅的模型目录提供，不需要轮询。
 const bmRoute = hostSrc.slice(hostSrc.indexOf('getBillingMode: function'), hostSrc.indexOf('getSubscriptionSnapshot: function'));
 check('host getBillingMode 纯本地（路由体无 fetch 调用）', !bmRoute.includes('fetch('), true);
 check('host getBillingMode 返回 model 字段（同 provider 换模型也可检测）', hostSrc.includes('model: sel.model'), true);
-check('client 含 2 秒高频 getBillingMode 轮询', /setInterval\(function \(\) \{\s*rpc\('getBillingMode'\)[\s\S]*?\}, 2000\)/.test(clientSrc), true);
-check('client 模式/provider/model 变化触发完整 load', clientSrc.includes('if (lastKey !== null && lastKey !== key) load();'), true);
-check('client 轮询 key 含 mode+provider+model', clientSrc.includes("const key = bm.mode + ':' + (bm.provider || '') + ':' + (bm.model || '');"), true);
-check('client 轮询失败静默（30s 主轮询兜底）', clientSrc.includes('轮询失败静默：30s 主轮询兜底'), true);
-check('client getBillingMode 调用 ≥2 处（主 load + 高频轮询）', (clientSrc.match(/rpc\('getBillingMode'/g) || []).length >= 2, true);
+check('client 订阅会话级 modelDirectories（不读全局默认模型）', clientSrc.includes("ctx.get('modelDirectories')") && clientSrc.includes('directories.directoryFor(sessionId)'), true);
+check('client 订阅模型目录 store，切换立即发布', clientSrc.includes('directory.store.subscribe(publish)'), true);
+check('client 模型切换触发后台 load', clientSrc.includes('if (sessionModel) load(sessionModel);'), true);
+check('client 不含 2 秒高频 getBillingMode 轮询', !/setInterval\(function \(\) \{\s*rpc\('getBillingMode'\)[\s\S]*?\}, 2000\)/.test(clientSrc), true);
+check('client 用版本号阻止旧会话响应覆盖新会话', clientSrc.includes('requestVersion !== loadVersionRef.current'), true);
 
 console.log('\n结果：' + pass + ' PASS / ' + fail + ' FAIL');
 process.exit(fail > 0 ? 1 : 0);

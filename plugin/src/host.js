@@ -548,8 +548,8 @@ export default {
     }
 
     // RPC：当前订阅额度快照 + 模式判定（非订阅模式直接返回，不发任何订阅请求）
-    async function getSubscriptionSnapshotRpc() {
-      const sel = modelSelection();
+    async function getSubscriptionSnapshotRpc(selection) {
+      const sel = selection || modelSelection();
       const bm = detectBillingMode(sel.provider, config.billingMode);
       const out = { mode: bm.mode, provider: sel.provider, reason: bm.reason, source: null, plan: null, windows: [], fetchedAt: null, error: null };
       if (bm.mode !== 'subscription') return out;
@@ -632,6 +632,21 @@ export default {
         fallback = true;
       }
       return { provider: provider, model: model, fallback: fallback };
+    }
+
+    // Web client may supply the model selection owned by its currently active
+    // session.  `agentDefaultModel` is deliberately process-wide and only a
+    // default for new Agents, so it must never win over a valid session value.
+    // Treat this HTTP input as display/accounting context only: reject malformed
+    // values and fall back to the host default rather than letting bad input
+    // reach any model or credential operation.
+    function selectionFromArgs(args) {
+      const raw = args && typeof args === 'object' ? args.selection : null;
+      if (raw && typeof raw.provider === 'string' && raw.provider.length > 0
+          && typeof raw.model === 'string' && raw.model.length > 0) {
+        return { provider: raw.provider, model: raw.model, fallback: false };
+      }
+      return modelSelection();
     }
 
     // ---------- 服务商显示名静态映射（M5 起为 providerDisplayFromCache 的回退层） ----------
@@ -727,8 +742,8 @@ export default {
     }
 
     // ---------- 定价计算 ----------
-    function computePricing(nowMs) {
-      const sel = modelSelection();
+    function computePricing(nowMs, selection) {
+      const sel = selection || modelSelection();
       const entry = PRICING[sel.model];
       const period = entry && entry.mode === 'peak-valley' ? currentPeriod(nowMs) : 'flat';
       let prices = null;
@@ -956,19 +971,21 @@ export default {
       };
     }
 
-    function activeCurrency() {
+    function activeCurrency(selection) {
       // 币种跟随活跃模型服务商（与余额账户同源）：deepseek → CNY、openai → USD（估算快照）；
       // 余额快照未就绪时回退活跃模型定价币种，避免启动初期/无快照时显示错币种
-      const key = balanceProviderKey(modelSelection().provider || config.activeProvider);
+      const sel = selection || modelSelection();
+      const key = balanceProviderKey(sel.provider || config.activeProvider);
       const snap = balances[key];
       if (snap && snap.data && snap.data.currency) return snap.data.currency;
-      return modelCurrency(modelSelection().model);
+      return modelCurrency(sel.model);
     }
 
-    function spendSummary(nowMs) {
-      const snap = balances[balanceProviderKey(modelSelection().provider || config.activeProvider)] || { data: null };
+    function spendSummary(nowMs, selection) {
+      const sel = selection || modelSelection();
+      const snap = balances[balanceProviderKey(sel.provider || config.activeProvider)] || { data: null };
       const balance = snap.data ? snap.data.total : null;
-      const cur = activeCurrency();
+      const cur = activeCurrency(sel);
       const cutoff = nowMs - SPEND_DAYS * 86400 * 1000;
       let total = 0;
       let offpeakTotal = 0;
@@ -1002,9 +1019,9 @@ export default {
     }
 
     // ---------- 今日花费（北京时间当日累计，仅活动币种） ----------
-    function todaySpend(nowMs) {
+    function todaySpend(nowMs, selection) {
       const key = beijingDayKey(nowMs);
-      const cur = activeCurrency();
+      const cur = activeCurrency(selection);
       let total = 0;
       for (let i = 0; i < usageRecords.length; i++) {
         const r = usageRecords[i];
@@ -1017,10 +1034,10 @@ export default {
     }
 
     // ---------- 本月/近30天花费（仅活动币种） ----------
-    function monthSpend(nowMs) {
+    function monthSpend(nowMs, selection) {
       const d = new Date(nowMs + 8 * 3600 * 1000);
       const key = d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0');
-      const cur = activeCurrency();
+      const cur = activeCurrency(selection);
       let total = 0;
       for (let i = 0; i < usageRecords.length; i++) {
         const r = usageRecords[i];
@@ -1032,9 +1049,9 @@ export default {
       }
       return Math.round(total * 1000) / 1000;
     }
-    function last30dSpend(nowMs) {
+    function last30dSpend(nowMs, selection) {
       const cutoff = nowMs - 30 * 86400 * 1000;
-      const cur = activeCurrency();
+      const cur = activeCurrency(selection);
       let total = 0;
       for (let i = 0; i < usageRecords.length; i++) {
         const r = usageRecords[i];
@@ -1123,8 +1140,8 @@ export default {
     }
 
     // ---------- 全部花费 ----------
-    function totalSpend() {
-      const cur = activeCurrency();
+    function totalSpend(selection) {
+      const cur = activeCurrency(selection);
       let total = 0;
       for (let i = 0; i < usageRecords.length; i++) {
         const r = usageRecords[i];
@@ -1136,17 +1153,17 @@ export default {
     }
 
     // ---------- 用量汇总 ----------
-    function getUsageSummary(nowMs, sessionId) {
+    function getUsageSummary(nowMs, sessionId, selection) {
       const sessions = sessionTotals();
       return {
         sessions: sessions.length,
         calibration: calibrationFrom(sessions, CALIB_SESSIONS),
         currentSession: currentSessionSummary(sessions, sessionId),
-        spend: spendSummary(nowMs),
-        todaySpend: todaySpend(nowMs),
-        monthSpend: monthSpend(nowMs),
-        last30dSpend: last30dSpend(nowMs),
-        totalSpend: totalSpend(),
+        spend: spendSummary(nowMs, selection),
+        todaySpend: todaySpend(nowMs, selection),
+        monthSpend: monthSpend(nowMs, selection),
+        last30dSpend: last30dSpend(nowMs, selection),
+        totalSpend: totalSpend(selection),
         now: nowMs,
       };
     }
@@ -1221,21 +1238,21 @@ export default {
         const pid = args && typeof args === 'object' && args.provider ? String(args.provider) : '';
         return activeBalanceSummary(pid || undefined, Date.now());
       },
-      getPricing: async function () {
+      getPricing: async function (args) {
         // M5：首次遇到未刷新过的 provider → 等待一次目录名拉取（llm 缺失则直接回退），
         // 保证模型名/服务商名与模型切换器一致；已刷新过则零等待直接读缓存
-        const sel = modelSelection();
+        const sel = selectionFromArgs(args);
         const llm = ctx.get ? ctx.get('llm') : null;
         if (llm && !modelCatalogRefreshed[sel.provider]) await refreshModelCatalog(sel.provider);
         if (llm) await refreshModelCapability(sel.provider, sel.model);
-        return computePricing(Date.now());
+        return computePricing(Date.now(), sel);
       },
       getEstimate: function () {
         return computeEstimate(Date.now());
       },
       getUsageSummary: function (args) {
         const sessionId = args && typeof args === 'object' ? String(args.sessionId || '') : '';
-        return getUsageSummary(Date.now(), sessionId);
+        return getUsageSummary(Date.now(), sessionId, selectionFromArgs(args));
       },
       getProviders: function () {
         return { providers: providerList(Date.now()), activeProvider: config.activeProvider };
@@ -1255,14 +1272,14 @@ export default {
       getConfig: function () {
         return { displayMode: config.displayMode, infoDensity: config.infoDensity, activeProvider: config.activeProvider, alertThreshold: config.alertThreshold, billingMode: config.billingMode };
       },
-      getBillingMode: function () {
-        // 纯本地计算（零网络开销；客户端 2s 高频轮询专用）：返回 mode+provider+model，
-        // 客户端据此检测模型/服务商切换并立即完整刷新信息栏
-        const sel = modelSelection();
+      getBillingMode: function (args) {
+        // 纯本地计算：优先使用客户端已订阅的当前会话模型，避免把另一个会话的
+        // process-wide default 错显示到这里。
+        const sel = selectionFromArgs(args);
         return Object.assign(detectBillingMode(sel.provider, config.billingMode), { model: sel.model });
       },
-      getSubscriptionSnapshot: function () {
-        return getSubscriptionSnapshotRpc();
+      getSubscriptionSnapshot: function (args) {
+        return getSubscriptionSnapshotRpc(selectionFromArgs(args));
       },
       setDisplayMode: function (args) {
         const mode = args && typeof args === 'object' ? args.mode : null;
