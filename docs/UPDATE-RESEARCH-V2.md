@@ -35,22 +35,22 @@
 
 > **含义**：`dsh plugin update` 存在，但语义 = pnpm update；对 `link:` 本地目录依赖无效（见 1.3）。
 
-### 1.2 本机安装形态实锤（当前 100% 用户是 symlink）
+### 1.2 本地开发安装形态（symlink）
 
 `~/.dsh/profiles/web/package.json`：
 
 ```json
 "dependencies": {
-  "dsh-bottom-info-bar": "link:/Users/songsong/code/dsh-bottom-info-bar/plugin",
-  "dsh-chatgpt-subscription": "link:/Users/songsong/code/dsh-chatgpt-subscription",
+  "dsh-bottom-info-bar": "link:/path/to/dsh-bottom-info-bar/plugin",
+  "dsh-chatgpt-subscription": "link:/path/to/dsh-chatgpt-subscription",
   ...
 },
 "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-bottom-info-bar", ...] } }
 ```
 
-`node_modules/dsh-bottom-info-bar` 是符号链接：`-> ../../../../code/dsh-bottom-info-bar/plugin`。
+`node_modules/dsh-bottom-info-bar` 是指向本地插件目录的符号链接。
 
-→ 当前所有用户都是 `link:` 绝对路径安装，node_modules 里是指向本地 git checkout 的 symlink。
+→ `link:` 安装会使 node_modules 指向本地 git checkout；这是开发安装形态，不代表 npm 用户的安装形态。
 
 ### 1.3 pnpm link/symlink 安装 vs npm registry 包安装的差异
 
@@ -142,7 +142,7 @@ dsh plugin --profile updatetest update dsh-plugin-manager-community --latest
 # ④ 回滚语义
 dsh plugin --profile updatetest add dsh-plugin-manager-community@0.1.2
 # ⑤ 发布前预览 tarball（不发布）
-cd /Users/songsong/code/dsh-bottom-info-bar/plugin && npm pack --dry-run
+cd /path/to/dsh-bottom-info-bar/plugin && npm pack --dry-run
 # ⑥ 发布后（真实用户路径，web profile）：
 #    ./install.sh 改版为: dsh plugin --profile web add dsh-bottom-info-bar
 #    update.sh:      dsh plugin --profile web update dsh-bottom-info-bar --latest && 提示重启
@@ -269,4 +269,4 @@ cd /Users/songsong/code/dsh-bottom-info-bar/plugin && npm pack --dry-run
 - `registry.npmjs.org/dsh-plugin-manager-community/latest` → v0.1.3，声明 `dsh.bundle.patch`（社区 npm 分发先例）
 - `registry.npmjs.org/@deepseek-ai/dsh/latest` → 0.1.0-rc.7，dist 带 integrity + signatures（npm 签名先例）
 - `api.github.com/repos/songoao25/dsh-bottom-info-bar/releases/latest` → v1.3.0（匿名 200）
-- `~/.dsh/profiles/web/`：`"dsh-bottom-info-bar": "link:/Users/songsong/code/dsh-bottom-info-bar/plugin"` + node_modules symlink（link 安装形态实锤）
+- 本地 DSH profile：`"dsh-bottom-info-bar": "link:/path/to/dsh-bottom-info-bar/plugin"` 与 node_modules symlink（开发安装形态）
