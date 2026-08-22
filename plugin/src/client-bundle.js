@@ -162,6 +162,18 @@ module.exports = {
     // Survives composer remounts, so returning to an already visited session
     // does not require even one paint of an intermediate state.
     const sessionModelCache = new Map();
+    // The composer dock is recreated by the host when the active conversation
+    // changes. Keep the last painted model outside BottomInfoBar so the next
+    // instance can animate from that visible value instead of hard-cutting.
+    let lastRenderedModelIdentity = null;
+    let modelTransitionGeneration = 0;
+
+    function sameModelIdentity(left, right) {
+      return !!left && !!right
+        && left.sessionId === right.sessionId
+        && left.provider === right.provider
+        && left.model === right.model;
+    }
 
     function applyMode() {
       if (occupantDispose) { occupantDispose(); occupantDispose = null; }
@@ -378,10 +390,17 @@ module.exports = {
       React.useLayoutEffect(function () {
         if (!nextModelIdentity) return;
         setModelTransition(function (previous) {
-          const current = previous.current;
-          if (!current) return { current: nextModelIdentity, previous: null, generation: previous.generation };
-          if (current.sessionId === nextModelIdentity.sessionId && current.provider === nextModelIdentity.provider && current.model === nextModelIdentity.model) return previous;
-          return { current: nextModelIdentity, previous: current, generation: previous.generation + 1 };
+          const priorRendered = lastRenderedModelIdentity;
+          if (sameModelIdentity(priorRendered, nextModelIdentity)) {
+            return previous.current ? previous : { current: nextModelIdentity, previous: null, generation: modelTransitionGeneration };
+          }
+          lastRenderedModelIdentity = nextModelIdentity;
+          modelTransitionGeneration += 1;
+          return {
+            current: nextModelIdentity,
+            previous: priorRendered,
+            generation: modelTransitionGeneration,
+          };
         });
       }, [modelTransitionKey]);
       React.useEffect(function () {
