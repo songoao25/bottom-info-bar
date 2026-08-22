@@ -278,6 +278,12 @@ export default {
         peak:   { inputCacheHit: 0.10, inputCacheMiss: 3.0, output: 9.0 },
         offpeak:{ inputCacheHit: 0.05, inputCacheMiss: 1.5, output: 4.5 },
       },
+      // DSH 的视觉实验型号是 V4 Flash 变体；与 Flash 共用峰谷价，确保价格标签与用量记账同步。
+      'deepseek-v4-flash-vision-exp': {
+        currency: 'CNY', mode: 'peak-valley',
+        peak:   { inputCacheHit: 0.10, inputCacheMiss: 3.0, output: 9.0 },
+        offpeak:{ inputCacheHit: 0.05, inputCacheMiss: 1.5, output: 4.5 },
+      },
       'deepseek-v4-pro': {
         currency: 'CNY', mode: 'peak-valley',
         peak:   { inputCacheHit: 0.30, inputCacheMiss: 9.0, output: 27.0 },

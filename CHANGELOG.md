@@ -2,6 +2,15 @@
 
 本项目的版本记录遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.12] - 2026-08-22
+
+> v1.4.12：补全 DeepSeek V4 Flash 视觉实验模型的峰谷价格映射。
+
+### Fixed
+
+- `deepseek-v4-flash-vision-exp` 按 V4 Flash 峰谷价格显示高峰价/空闲价和下次切换倒计时
+- 视觉模型的真实用量进入同一价格表计算，不再因“未收录”跳过本对话花费
+
 ## [1.4.11] - 2026-08-22
 
 > v1.4.11：统一服务商、分隔圆点与视觉模型标签的垂直对齐基线。
