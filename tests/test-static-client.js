@@ -51,7 +51,9 @@ check('错误与警告保留语义色和字重', clientSrc.includes('.bi-err  { 
 
 // 7) 视觉模型：仅 host 明确识别后展示，并为深浅色保留低饱和紫色变体
 check('视觉标识只接受 host 的显式 true，不通过名称猜测', clientSrc.includes("pr.acceptsImageInput !== true"), true);
-check('视觉标识采用低饱和紫色椭圆并适配深色', clientSrc.includes('.bi-vision {')
+check('视觉模型名采用低饱和紫色椭圆、与标签行高对齐并适配深色', clientSrc.includes('.bi-vision {')
+  && clientSrc.includes('height: 20px')
+  && clientSrc.includes('vertical-align: top')
   && clientSrc.includes('border-radius: 999px')
   && clientSrc.includes('@media (prefers-color-scheme: dark) { .bi-vision'), true);
 
