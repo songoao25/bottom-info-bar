@@ -37,7 +37,7 @@ check('订阅制服务商/模型 hover 同样显示当前插件版本', (client.
 check('client 只在有更新时显示新版本提醒文字', client.includes("'新版本提醒'") && client.includes('updateInfo.available === true'))
 check('更新标签提示语包含动态最新版本号', client.includes("title: '请告知你的 Agent 将本插件更新到“' + updateInfo.latest + '”版本。'"))
 check('更新标签使用鲜红色提醒语义且无下划线', client.includes('.bi-update{ color: var(--bi-state-alert); font-weight: 600; }')
-  && client.includes('--bi-state-alert: #ff3b30') && !client.includes('text-decoration: underline'))
+  && client.includes('--bi-state-alert: #d70015') && !client.includes('text-decoration: underline'))
 check('更新标签不是链接或按钮', !client.includes('window.open') && !client.includes("<a") && !client.includes("'a'"))
 check('不包含自动更新命令执行逻辑', !client.includes('child_process') && !host.includes('exec(') && !host.includes('spawn('))
 

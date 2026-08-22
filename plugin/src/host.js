@@ -271,7 +271,7 @@ export default {
     // 版本检查只在 host 进程启动时发起一次；客户端后续只读取这个缓存结果。
     const updateInfoPromise = checkLatestVersion()
 
-    // ---------- 定价表（元/美元 · 百万 tokens；DeepSeek 官方 2026-08-17；OpenAI 为 2026 官方价示例） ----------
+    // ---------- 定价表（元/美元 · 百万 tokens；来源与人工复核规则见 docs/PRICING-SOURCES.md） ----------
     const PRICING = {
       'deepseek-v4-flash': {
         currency: 'CNY', mode: 'peak-valley',

@@ -31,6 +31,10 @@ check('client 源码含 toggling 防抖', clientSrc.includes('toggling'), true);
 check('client 源码含严格判定 === \'full\'', clientSrc.includes("props.density === 'full'"), true);
 check('client 源码不含 !== \'compact\' 宽松判定', !clientSrc.includes("props.density !== 'compact'"), true);
 check('client 源码 root onClick 绑定 onToggleDensity', clientSrc.includes('onClick: function () { props.onToggleDensity(); }'), true);
+check('client 信息栏支持键盘切换密度', clientSrc.includes("role: 'button'")
+  && clientSrc.includes('tabIndex: 0')
+  && clientSrc.includes('onKeyDown: function (event)')
+  && clientSrc.includes("event.key === 'Enter' || event.key === ' '"), true);
 
 // 4) 当前会话 ID 多路获取（修复：新对话显示上一会话金额）
 check('client 优先读 props.sessionId', clientSrc.includes('if (p.sessionId) return p.sessionId;'), true);
@@ -46,8 +50,9 @@ check('client 防抖 800ms 刷新', clientSrc.includes('window.setTimeout(load, 
 check('估算余额使用中性说明色', clientSrc.includes("className: 'bi-muted'"), true);
 check('正常订阅额度不使用绿色成功色', clientSrc.includes("remaining <= LOW_QUOTA_PERCENT ? 'bi-quota-low' : ''"), true);
 check('高峰价使用主文字保证小字号可读', clientSrc.includes('.bi-peak    { color: var(--bi-label-primary); font-weight: 700; }'), true);
-check('低余额、低额度、刷新失败和阻断错误统一使用鲜红色文字', clientSrc.includes('--bi-state-alert: #ff3b30')
-  && clientSrc.includes('.bi-err, .bi-stale { color: var(--bi-state-alert); font-weight: 600; }')
+check('低余额、低额度、刷新失败和阻断错误统一使用高对比鲜红色文字', clientSrc.includes('--bi-state-alert: #d70015')
+  && clientSrc.includes('@media (prefers-color-scheme: dark) { .bi-root { --bi-state-alert: #ff6961; } }')
+  && clientSrc.includes('.bi-err, .bi-stale { color: var(--bi-state-alert); font-weight: 700; }')
   && clientSrc.includes('.bi-root b.bi-alert-num, .bi-root b.bi-quota-low { color: var(--bi-state-alert); font-weight: 700; }'), true);
 check('低余额和低额度仅突出对应数字，不追加文字或三角图标', !clientSrc.includes('⚠')
   && !clientSrc.includes('余额偏低') && !clientSrc.includes('剩余偏低')
@@ -55,7 +60,12 @@ check('低余额和低额度仅突出对应数字，不追加文字或三角图�
   && clientSrc.includes("num(remaining + '%', numberClass)"), true);
 check('报错标签统一延后到整行最右侧', clientSrc.includes('const trailingErrorGroups = []')
   && clientSrc.includes('trailingErrorGroups.push')
-  && clientSrc.includes('groups.push(...trailingErrorGroups);'), true);
+  && clientSrc.includes('.bi-row2-errors { grid-column: 3; justify-self: end;')
+  && clientSrc.includes("className: 'bi-row2-errors'"), true);
+check('多个刷新失败合并为一个右侧标签', clientSrc.includes('const seenRefreshFailure = { value: false };')
+  && clientSrc.includes("if (text !== '刷新失败') return true;"), true);
+check('错误说明可被辅助技术读取', clientSrc.includes('function errorTag(className, key, title, text)')
+  && clientSrc.includes("'aria-label': title"), true);
 
 // 7) 视觉模型：仅 host 明确识别后展示，复刻参考图的实色靛蓝椭圆
 check('视觉标识只接受 host 的显式 true，不通过名称猜测', clientSrc.includes("pr.acceptsImageInput !== true"), true);

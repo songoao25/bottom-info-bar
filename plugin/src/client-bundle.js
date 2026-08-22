@@ -20,9 +20,6 @@ const RPC_BASE = '/_dsh/dsh-bottom-info-bar';
 // 排版优化（正式版）：完整模式下隐藏"首 token 平均 / tok/s"两个低优先级原生字段，
 // 让原生统计行在 748px 对话宽度下单行放得下；hover 信息浮窗（title）仍显示全部原生信息。
 const HIDE_SPEED_FIELDS = true;
-// 订阅窗口预警阈值：任一窗口已用百分比 ≥ 该值 → 鲜红色文字（与 host 常量保持一致）
-const WINDOW_ALERT_PERCENT = 90;
-
 // RPC 超时兜底：host 侧 15s 超时之上再留余量；端点挂起时 20s 内必失败，杜绝永久"加载中…"
 const RPC_TIMEOUT_MS = 20000;
 
@@ -97,11 +94,15 @@ function installStyles() {
   style.dataset.plugin = 'dsh-bottom-info-bar';
   style.dataset.pluginCss = id;
   style.textContent = `
-      .bi-root { --bi-label-primary: var(--dsw-alias-label-primary, #333); --bi-label-tertiary: var(--dsw-alias-label-tertiary, rgba(128,128,128,0.9)); --bi-separator: var(--dsw-alias-separator-primary, rgba(128,128,128,0.5)); --bi-state-price-low: var(--dsw-alias-state-success-primary, #16a34a); --bi-state-alert: #ff3b30; text-align: center; max-width: var(--dsh-chat-content-width); box-sizing: border-box; width: 100%; padding: 4px calc(var(--dsh-composer-side-clearance) + 16px) 0px; margin: 0 auto; display: block; overflow: hidden; font-size: 12px; line-height: 20px; color: var(--bi-label-tertiary); font-variant-numeric: tabular-nums; cursor: pointer; }
+      .bi-root { --bi-label-primary: var(--dsw-alias-label-primary, #333); --bi-label-tertiary: var(--dsw-alias-label-tertiary, rgba(128,128,128,0.9)); --bi-separator: var(--dsw-alias-separator-primary, rgba(128,128,128,0.5)); --bi-state-price-low: #15803d; --bi-state-alert: #d70015; text-align: center; max-width: var(--dsh-chat-content-width); box-sizing: border-box; width: 100%; padding: 4px calc(var(--dsh-composer-side-clearance) + 16px) 0px; margin: 0 auto; display: block; overflow: hidden; font-size: 12px; line-height: 20px; color: var(--bi-label-tertiary); font-variant-numeric: tabular-nums; cursor: pointer; }
       @media (prefers-color-scheme: dark) { .bi-root { --bi-state-alert: #ff6961; } }
       .bi-native-row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; width: 100%; }
-      .bi-row2 { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; width: 100%; }
-      .bi-native-row > span, .bi-row2 > span { white-space: nowrap; }
+      .bi-row2 { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; width: 100%; }
+      .bi-row2-main { grid-column: 2; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; }
+      .bi-row2-errors { grid-column: 3; justify-self: end; display: flex; align-items: center; white-space: nowrap; }
+      .bi-root:focus-visible { outline: 2px solid var(--bi-label-primary); outline-offset: 2px; border-radius: 4px; }
+      @media (max-width: 620px) { .bi-row2 { display: flex; flex-wrap: wrap; justify-content: center; } .bi-row2-main { display: flex; flex-wrap: wrap; justify-content: center; } .bi-row2-errors { width: 100%; justify-content: center; } }
+      .bi-native-row > span, .bi-row2-main > span, .bi-row2-errors > span { white-space: nowrap; }
       .bi-sep { color: var(--bi-separator); margin: 0 8px; }
       /* 服务商名等一般强调：加粗 600 */
       .bi-root b { color: var(--bi-label-primary); font-weight: 600; }
@@ -110,7 +111,7 @@ function installStyles() {
       /* 高峰价用主文字保证小字号可读；空闲价以绿色辅助“更优惠”的文字含义。 */
       .bi-peak    { color: var(--bi-label-primary); font-weight: 700; }
       .bi-offpeak { color: var(--bi-state-price-low); font-weight: 700; }
-      .bi-err, .bi-stale { color: var(--bi-state-alert); font-weight: 600; }
+      .bi-err, .bi-stale { color: var(--bi-state-alert); font-weight: 700; }
       .bi-muted{ color: var(--bi-label-tertiary); }
       .bi-root b.bi-alert-num, .bi-root b.bi-quota-low { color: var(--bi-state-alert); font-weight: 700; }
       /* 新版本需要用户处理，与其他提醒使用统一鲜红色文字，不伪装成链接。 */
@@ -367,7 +368,12 @@ module.exports = {
       // 仅在 DSH 模型目录明确声明 inputModalities 包含 image 时，将“完整模型名 视觉”合并为一个椭圆。
       function modelLabelWithCapability(pr, modelLabel) {
         if (!pr || pr.acceptsImageInput !== true) return modelLabel;
-        return React.createElement('span', { className: 'bi-vision', title: '支持图像输入。' }, modelLabel, ' 视觉');
+        return React.createElement('span', { className: 'bi-vision', title: '支持图像输入。', 'aria-label': modelLabel + '，支持图像输入。' }, modelLabel, ' 视觉');
+      }
+
+      // 错误说明不只留在鼠标 hover：辅助技术可读取同一条简短原因与下一步操作。
+      function errorTag(className, key, title, text) {
+        return React.createElement('span', { className: className, key: key, title: title, 'aria-label': title }, text);
       }
 
       function modelSeparator() {
@@ -445,7 +451,7 @@ module.exports = {
 
         // 余额（纯金额；hover 仅展示余额，不显示充值/赠金）
         if (bal && bal.error && bal.error.kind === 'no-key') {
-          trailingErrorGroups.push(React.createElement('span', { className: 'bi-err', key: 'nokey', title: '未配置 DeepSeek API Key。请在“设置 → 模型”中填写。' },
+          trailingErrorGroups.push(errorTag('bi-err', 'nokey', '未配置 DeepSeek API Key。请在“设置 → 模型”中填写。',
             '未配置 DEEPSEEK_API_KEY → 设置→模型 填写'));
         } else if (bal && bal.data) {
           const symbol = bal.currency === 'USD' ? '$' : '¥';
@@ -459,13 +465,13 @@ module.exports = {
           ));
           // host 快照失败（bal.error）或本次 RPC 失败（errors.balance）→ 均保留旧数据 + 降级标记
           if (bal.error || errors.balance) {
-            trailingErrorGroups.push(React.createElement('span', { className: 'bi-stale', key: 'balerr', title: '余额暂不可用；正在显示上次数据并自动重试。' }, '刷新失败'));
+            trailingErrorGroups.push(errorTag('bi-stale', 'balerr', '余额暂不可用；正在显示上次数据并自动重试。', '刷新失败'));
           }
         } else if (bal && bal.error) {
-          trailingErrorGroups.push(React.createElement('span', { className: 'bi-err', key: 'berr', title: '余额获取失败。请检查网络和 API Key。' }, '余额获取失败'));
+          trailingErrorGroups.push(errorTag('bi-err', 'berr', '余额获取失败。请检查网络和 API Key。', '余额获取失败'));
         } else if (errors.balance) {
           // 本次 RPC 失败且无旧数据：只降级余额块，其余端点数据照常渲染
-          trailingErrorGroups.push(React.createElement('span', { className: 'bi-err', key: 'berr', title: '余额获取失败。请检查网络和 API Key。' }, '余额获取失败'));
+          trailingErrorGroups.push(errorTag('bi-err', 'berr', '余额获取失败。请检查网络和 API Key。', '余额获取失败'));
         }
 
         // 时段：仅峰谷价服务商显示"高峰价/空闲价"（flat/unknown 服务商不显示；hover 展示具体价格）
@@ -509,7 +515,7 @@ module.exports = {
             num(costTxt)));
         } else if (errors.usage) {
           // 本次 RPC 失败且无旧数据：只降级花费块，其余端点数据照常渲染
-          trailingErrorGroups.push(React.createElement('span', { className: 'bi-err', key: 'usageerr', title: '花费暂不可用；不会影响对话。' }, '花费获取失败'));
+          trailingErrorGroups.push(errorTag('bi-err', 'usageerr', '花费暂不可用；不会影响对话。', '花费获取失败'));
         }
       }
 
@@ -537,7 +543,7 @@ module.exports = {
         if (!sub) {
           if (errors.sub) {
             // 本次 RPC 失败且无旧数据：显示失败信息而非永久"加载中…"
-            trailingErrorGroups.push(React.createElement('span', { className: 'bi-stale', key: 'suberr', title: subscriptionFailureHint({ kind: 'exception', message: String(errors.sub) }) }, '刷新失败'));
+            trailingErrorGroups.push(errorTag('bi-stale', 'suberr', subscriptionFailureHint({ kind: 'exception', message: String(errors.sub) }), '刷新失败'));
           } else {
             groups.push(React.createElement('span', { key: 'subload' }, '订阅额度加载中…'));
           }
@@ -552,7 +558,7 @@ module.exports = {
         // no-key（无令牌/缺 access_token）与 auth（令牌失效 401）→ 统一"未绑定/重新绑定"引导——
         // 令牌由独立插件 dsh-chatgpt-subscription 维护，本插件只读令牌显示额度，不自行绑定/续期
         if (sub.error && !hasData) {
-          trailingErrorGroups.push(React.createElement('span', { className: 'bi-stale', key: 'substale', title: subscriptionFailureHint(sub.error, sub.source) }, '刷新失败'));
+          trailingErrorGroups.push(errorTag('bi-stale', 'substale', subscriptionFailureHint(sub.error, sub.source), '刷新失败'));
           return;
         }
         // 窗口缺失（如 Codex 无 5 小时窗口）→ 跳过窗口组，不占位、不报错
@@ -590,7 +596,7 @@ module.exports = {
           groups.push(React.createElement('span', { key: 'subwin', title: titleLines.join('\n') }, ...winNodes));
           // host 快照失败（sub.error）或本次 RPC 失败（errors.sub）→ 均保留旧数据 + 降级标记
           if (sub.error || errors.sub) {
-            trailingErrorGroups.push(React.createElement('span', { className: 'bi-stale', key: 'substale', title: subscriptionFailureHint(sub.error || { kind: 'exception', message: String(errors.sub || '') }) }, '刷新失败'));
+            trailingErrorGroups.push(errorTag('bi-stale', 'substale', subscriptionFailureHint(sub.error || { kind: 'exception', message: String(errors.sub || '') }), '刷新失败'));
           }
           // 距重置倒计时（与显示的窗口一致，确保额度与倒计时匹配）
           if (displayWindow && displayWindow.resetsAt) {
@@ -630,9 +636,8 @@ module.exports = {
       if (errors.billingMode) failedLabels.push('模式');
       if (errors.sub) failedLabels.push('订阅额度');
       if (failedLabels.length > 0) {
-        trailingErrorGroups.push(React.createElement('span', { className: 'bi-stale', key: 'degraded',
-          title: failedLabels.join('、') + '暂不可用；正在保留上次数据并自动重试。' },
-          '刷新失败'));
+        trailingErrorGroups.push(errorTag('bi-stale', 'degraded',
+          failedLabels.join('、') + '暂不可用；正在保留上次数据并自动重试。', '刷新失败'));
       }
 
        if (updateInfo && updateInfo.available === true) {
@@ -641,8 +646,6 @@ module.exports = {
        }, '新版本提醒'));
        }
 
-       groups.push(...trailingErrorGroups);
-
        // ---- 组装 ----
       const sepNodes = [];
       const nodes = [];
@@ -650,7 +653,22 @@ module.exports = {
         if (i > 0) nodes.push(React.createElement('span', { key: 'sep' + i, className: 'bi-sep' }, '|'));
         nodes.push(React.createElement('span', { key: 'g' + i }, groups[i]));
       }
-      const row2 = React.createElement('div', { className: 'bi-row2' }, ...nodes);
+      const seenRefreshFailure = { value: false };
+      const visibleErrors = trailingErrorGroups.filter(function (node) {
+        const text = node && node.props ? node.props.children : '';
+        if (text !== '刷新失败') return true;
+        if (seenRefreshFailure.value) return false;
+        seenRefreshFailure.value = true;
+        return true;
+      });
+      const errorNodes = [];
+      for (let i = 0; i < visibleErrors.length; i++) {
+        if (i > 0) errorNodes.push(React.createElement('span', { key: 'errsep' + i, className: 'bi-sep' }, '|'));
+        errorNodes.push(React.createElement('span', { key: 'err' + i }, visibleErrors[i]));
+      }
+      const row2 = React.createElement('div', { className: 'bi-row2' },
+        React.createElement('div', { className: 'bi-row2-main' }, ...nodes),
+        errorNodes.length > 0 ? React.createElement('div', { className: 'bi-row2-errors' }, ...errorNodes) : null);
 
       let row1 = null;
       if (full && statsProj) {
@@ -701,7 +719,11 @@ module.exports = {
       const rootCls = 'bi-root';
       return React.createElement('div', {
         className: rootCls,
+        role: 'button',
+        tabIndex: 0,
+        'aria-label': '底部信息栏。按 Enter 或空格切换完整和简洁显示。',
         onClick: function () { props.onToggleDensity(); },
+        onKeyDown: function (event) { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); props.onToggleDensity(); } },
         title: '单击切换 完整/简洁',
       }, row1, row2);
     }
