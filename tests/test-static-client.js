@@ -2,7 +2,8 @@
 // ① 本对话花费始终显示——不再以 currentSession.tokens > 0 为门槛（新会话/对话刚开始显示 ¥0.000，
 //    hover 仍可查看持久化的 今天/近一月/全部）；
 // ② 原生统计行不再以 steps > 0 为门槛——完整模式下对话刚开始即显示 "0 轮 · 0 步"；
-// ③ 密度切换仍为严格两态（props.density === 'full'）+ toggling 防抖（回归保护）。
+//    简洁模式中该行保留在 DOM 内，以连续收合动画隐藏。
+// ③ 密度切换仍为严格两态（displayDensity === 'full'）+ toggling 防抖（回归保护）。
 // 用法：node tests/test-static-client.js
 const fs = require('fs');
 
@@ -22,17 +23,20 @@ check('无记账时显示 ¥0.000 回退', clientSrc.includes("(bal && bal.curre
 check('hover 仍含 今天/近一月/全部', clientSrc.includes("'今天 ' + symbol + fmt(usg.todaySpend, 3)"), true);
 check('hover 仍含 全部', clientSrc.includes("'全部 ' + symbol + fmt(usg.totalSpend, 3)"), true);
 
-// 2) 原生统计行不再以 steps > 0 为门槛
-check('原生统计行门槛改为 full && statsProj', clientSrc.includes('if (full && statsProj) {'), true);
+// 2) 原生统计行不再以 steps > 0 为门槛；简洁模式下保留 DOM 供动画收合
+check('原生统计行由 statsProj 驱动，简洁模式保留 DOM 以支持收合', clientSrc.includes('if (statsProj) {')
+  && clientSrc.includes("className: 'bi-density-extra'"), true);
 check('原生统计行不含 steps > 0 门槛', !clientSrc.includes('statsProj.steps > 0'), true);
 
 // 3) 密度两态 + 防抖回归保护
 check('client 源码含 toggling 防抖', clientSrc.includes('toggling'), true);
-check('client 源码含严格判定 === \'full\'', clientSrc.includes("props.density === 'full'"), true);
+check('client 源码含严格判定 === \'full\'', clientSrc.includes("displayDensity === 'full'"), true);
 check('client 源码不含 !== \'compact\' 宽松判定', !clientSrc.includes("props.density !== 'compact'"), true);
 check('client 源码 root onClick 绑定 onToggleDensity', clientSrc.includes('onClick: function () { props.onToggleDensity(); }'), true);
-check('client 不额外引入键盘切换，保持鼠标单击交互', !clientSrc.includes("role: 'button'")
-  && !clientSrc.includes('onKeyDown: function (event)'), true);
+check('client 切换同时支持键盘，语义为按钮', clientSrc.includes("role: 'button'")
+  && clientSrc.includes('onKeyDown: function (event)'), true);
+check('可交互信息栏不允许选中文本，避免点击时出现正文选择态', clientSrc.includes('user-select: none')
+  && clientSrc.includes('-webkit-user-select: none'), true);
 
 // 4) 当前会话 ID 多路获取（修复：新对话显示上一会话金额）
 check('client 优先读 props.sessionId', clientSrc.includes('if (p.sessionId) return p.sessionId;'), true);
@@ -48,8 +52,10 @@ check('client 防抖 800ms 刷新', clientSrc.includes('window.setTimeout(load, 
 check('估算余额使用中性说明色', clientSrc.includes("className: 'bi-muted'"), true);
 check('正常订阅额度不使用绿色成功色', clientSrc.includes("remaining <= LOW_QUOTA_PERCENT ? 'bi-quota-low' : ''"), true);
 check('高峰价使用主文字保证小字号可读', clientSrc.includes('.bi-peak    { color: var(--bi-label-primary); font-weight: 700; }'), true);
+check('空闲价为浅色与深色主题分别设置高对比绿色', clientSrc.includes('--bi-state-price-low: #166534')
+  && clientSrc.includes('--bi-state-price-low: #86efac'), true);
 check('低余额、低额度、刷新失败和阻断错误统一使用高对比鲜红色文字', clientSrc.includes('--bi-state-alert: #d70015')
-  && clientSrc.includes('@media (prefers-color-scheme: dark) { .bi-root { --bi-state-alert: #ff6961; } }')
+  && clientSrc.includes('--bi-state-alert: #ff6961')
   && clientSrc.includes('.bi-err, .bi-stale { color: var(--bi-state-alert); font-weight: 700; }')
   && clientSrc.includes('.bi-root b.bi-alert-num, .bi-root b.bi-quota-low { color: var(--bi-state-alert); font-weight: 700; }'), true);
 check('低余额和低额度仅突出对应数字，不追加文字或三角图标', !clientSrc.includes('⚠')

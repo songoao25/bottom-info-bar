@@ -95,15 +95,19 @@ All spend data lives in the plugin's own data directory, isolated from other plu
 
 ```
 ~/.dsh/dsh-bottom-info-bar/
-└── usage-records.json      # per-request usage ledger (persisted across restarts)
+├── usage-records.json           # the complete, human-readable bill to open
+├── usage-records.journal.jsonl  # recovery journal; do not edit manually
+└── usage-records.json.bak       # previous complete snapshot for recovery
 ```
 
 - **Location**: `~/.dsh/dsh-bottom-info-bar/` (directory mode `0700`, file mode `0600` — readable only by the current user).
 - **Override**: set the environment variable `DSH_BOTTOM_INFO_BAR_DATA_DIR` to relocate the whole data directory (e.g. an external drive or a synced folder).
-- **Contents**: one entry per `llm/stream` request (`ts / model / provider / sessionId / input / cacheRead / cacheWrite / output`). No conversation content and no API keys are ever stored.
-- **Retention**: capped at 3,000 entries (oldest first).
-- **Spend scope**: aggregated in the active provider's currency (CNY for DeepSeek, USD for the OpenAI reference prices); records in other currencies are not mixed in. Models absent from the pricing table are excluded.
-- **Reset**: delete the file to clear all statistics. Uninstalling the plugin does not delete your data.
+- **View and migrate**: open `usage-records.json` in any text editor to inspect every recorded model response. To back up or move to another computer, copy the entire `~/.dsh/dsh-bottom-info-bar/` directory while DSH is closed.
+- **Contents**: one entry per model response (`id / ts / model / provider / sessionId / input / cacheRead / cacheWrite / output / currency / cost / status`). `status` is `completed` or `interrupted`; an interrupted response can still have confirmed billable usage. The billed price is fixed when the response completes, so later price-table updates never rewrite historical totals. Unknown-price models keep their token usage with `pricingStatus: "unpriced"` and are not given an invented cost. No conversation content, prompts, or API keys are ever stored.
+- **Durability**: the journal is synchronously confirmed before the UI includes a new bill. If that write fails, the bar says “账单未保存” and the amount is not added. The readable JSON snapshot is rebuilt in the background; if it is damaged after an interruption, the last good snapshot and every intact journal line are recovered automatically. Do not manually edit the journal or backup file.
+- **Retention**: no silent entry cap. Keep the directory in normal user backups if you need long-term retention beyond this machine.
+- **Spend scope**: money is aggregated only in the active provider's currency (CNY for DeepSeek, USD for the OpenAI reference prices); records in other currencies are not mixed in. Models absent from the pricing table remain visible in the ledger but are excluded from money totals.
+- **Reset**: delete the whole `~/.dsh/dsh-bottom-info-bar/` directory to clear all statistics. Uninstalling the plugin does not delete your data.
 
 ## Uninstall
 

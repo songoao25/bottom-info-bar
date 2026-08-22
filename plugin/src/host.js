@@ -2,16 +2,23 @@
 // 业务：余额真实 API / 峰谷定价 / llm/stream 记账 / 会话聚合 / 显示名识别 / 订阅额度显示
 // RPC：webServer HTTP 路由（GET/POST /_dsh/dsh-bottom-info-bar/<method>，JSON 进出，同源防护）
 // 依赖：inject ['credentials', 'timer']；可选服务 webServer（ctx.inject 等待）
-// 记账持久化：usageRecords 落盘 ~/.dsh/dsh-bottom-info-bar/usage-records.json（可用环境变量
-// DSH_BOTTOM_INFO_BAR_DATA_DIR 覆盖目录），重启后真实累计花费不丢失。
+// 记账持久化：追加账本 + 可恢复快照落盘 ~/.dsh/dsh-bottom-info-bar/（可用环境变量
+// DSH_BOTTOM_INFO_BAR_DATA_DIR 覆盖目录），重启/中断后真实累计花费不丢失。
 // 订阅额度：本插件只读令牌（~/.codex/auth.json / opencode auth.json）查询额度、仅作显示；
 // 令牌的绑定/续期/写回由独立插件 dsh-chatgpt-subscription 维护，本插件不写回、不续期、不注入凭据。
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, statSync, writeSync } from 'node:fs'
+import { createHash, randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
 const DATA_DIR = process.env.DSH_BOTTOM_INFO_BAR_DATA_DIR || join(homedir(), '.dsh', 'dsh-bottom-info-bar')
 const DATA_FILE = join(DATA_DIR, 'usage-records.json')
+const DATA_BACKUP_FILE = DATA_FILE + '.bak'
+const DATA_TEMP_FILE = DATA_FILE + '.tmp'
+const DATA_TEMP_PREFIX = DATA_TEMP_FILE + '.'
+// The journal is the source of truth.  The JSON file remains a compact,
+// human-readable snapshot for backwards compatibility and quick recovery.
+const USAGE_JOURNAL_FILE = join(DATA_DIR, 'usage-records.journal.jsonl')
 const PACKAGE_FILE = new URL('../package.json', import.meta.url)
 const UPDATE_REGISTRY_URL = 'https://registry.npmjs.org/dsh-bottom-info-bar/latest'
 const UPDATE_CHECK_TIMEOUT_MS = 5000
@@ -256,13 +263,78 @@ function isValidUsageRecord(r) {
     && Number.isFinite(r.output) && r.output >= 0;
 }
 
-function loadUsageRecords() {
+function legacyUsageRecordId(record, index, source) {
+  const stable = JSON.stringify([source, index, record.ts, record.provider, record.model, record.sessionId, record.input, record.cacheRead, record.cacheWrite, record.output])
+  return 'legacy-' + createHash('sha256').update(stable).digest('hex').slice(0, 24)
+}
+
+function normalizeUsageRecord(record, index, source) {
+  const normalized = Object.assign({}, record)
+  if (typeof normalized.id !== 'string' || normalized.id.length === 0) normalized.id = legacyUsageRecordId(normalized, index, source)
+  if (normalized.status !== 'completed' && normalized.status !== 'interrupted') normalized.status = 'completed'
+  if (normalized.pricingStatus !== 'priced' && normalized.pricingStatus !== 'unpriced') {
+    normalized.pricingStatus = Number.isFinite(normalized.cost) && normalized.cost >= 0 ? 'priced' : 'unpriced'
+  }
+  return normalized
+}
+
+function readUsageSnapshot(filePath) {
   try {
-    if (!existsSync(DATA_FILE)) return []
-    const parsed = JSON.parse(readFileSync(DATA_FILE, 'utf8'))
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter(isValidUsageRecord);
-  } catch (err) { /* 文件损坏/不可读 → 从空开始，不影响主流程 */ return [] }
+    if (!existsSync(filePath)) return null
+    const parsed = JSON.parse(readFileSync(filePath, 'utf8'))
+    return Array.isArray(parsed) ? parsed.filter(isValidUsageRecord) : null
+  } catch (err) { return null }
+}
+
+function usageRecordKey(record, index, source) {
+  if (typeof record.id === 'string' && record.id.length > 0) return 'id:' + record.id
+  // Legacy records had no stable id.  Keep their original snapshot position in
+  // the key so upgrading never merges two legitimate, identical requests.
+  return 'legacy:' + source + ':' + index + ':' + record.ts + ':' + record.provider + ':' + record.model + ':' + record.sessionId
+}
+
+function loadUsageRecords() {
+  // Recovery order: current snapshot → last known-good snapshot → interrupted
+  // temporary snapshot.  A bad file must not turn a user's whole bill into 0.
+  const temporarySnapshots = []
+  try {
+    if (existsSync(DATA_DIR)) {
+      readdirSync(DATA_DIR).filter(function (name) { return name.indexOf('usage-records.json.tmp.') === 0; })
+        .map(function (name) { return join(DATA_DIR, name); })
+        .sort(function (a, b) { return statSync(b).mtimeMs - statSync(a).mtimeMs; })
+        .forEach(function (file) { temporarySnapshots.push(file); })
+    }
+  } catch (err) { /* fall back to the legacy fixed temporary snapshot */ }
+  const candidates = [DATA_FILE, DATA_BACKUP_FILE, DATA_TEMP_FILE].concat(temporarySnapshots)
+  let snapshot = []
+  for (let i = 0; i < candidates.length; i++) {
+    const loaded = readUsageSnapshot(candidates[i])
+    if (loaded) { snapshot = loaded; break }
+  }
+  const records = []
+  const seen = new Set()
+  let migratedLegacyRecord = false
+  function add(record, index, source) {
+    if (!isValidUsageRecord(record)) return
+    if (typeof record.id !== 'string' || record.id.length === 0) migratedLegacyRecord = true
+    const normalized = normalizeUsageRecord(record, index, source)
+    const key = usageRecordKey(normalized, index, source)
+    if (seen.has(key)) return
+    seen.add(key)
+    records.push(normalized)
+  }
+  snapshot.forEach(function (record, index) { add(record, index, 'snapshot') })
+  // A torn journal line only loses that one unfinished append; all preceding
+  // valid lines remain usable.  This is deliberately unlike all-or-nothing JSON.
+  try {
+    if (existsSync(USAGE_JOURNAL_FILE)) {
+      readFileSync(USAGE_JOURNAL_FILE, 'utf8').split('\n').forEach(function (line, index) {
+        if (!line.trim()) return
+        try { add(JSON.parse(line), index, 'journal') } catch (err) { /* skip only the corrupt line */ }
+      })
+    }
+  } catch (err) { /* snapshot is still a safe recovery source */ }
+  return { records: records.sort(function (a, b) { return a.ts - b.ts }), migratedLegacyRecord: migratedLegacyRecord }
 }
 
 export default {
@@ -808,20 +880,62 @@ export default {
     }
 
     // ---------- 用量记账（llm/stream waterfall；落盘持久化，重启不丢失） ----------
-    let usageRecords = loadUsageRecords(); // { ts, model, provider, sessionId, purpose, input, cacheRead, cacheWrite, output }
+    const loadedUsageRecords = loadUsageRecords();
+    let usageRecords = loadedUsageRecords.records; // { id, ts, model, provider, sessionId, input, cacheRead, cacheWrite, output, currency, cost, pricingStatus, pricingVersion, status }
     let saveDisposer = null;
-    let dirty = false;
+    let dirty = loadedUsageRecords.migratedLegacyRecord;
+    let ledgerError = null;
+
+    function writeAndSync(filePath, content, flags) {
+      let fd = null;
+      try {
+        fd = openSync(filePath, flags, 0o600);
+        const bytes = Buffer.from(content);
+        let offset = 0;
+        while (offset < bytes.length) {
+          const written = writeSync(fd, bytes, offset, bytes.length - offset);
+          if (!written) throw new Error('账单文件写入未完成');
+          offset += written;
+        }
+        fsyncSync(fd);
+      } finally {
+        if (fd !== null) closeSync(fd);
+      }
+    }
+
+    function appendUsageJournal(record) {
+      try {
+        mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+        // `a` opens with O_APPEND.  A record is admitted to the visible total
+        // only after the operating system confirms this line has been flushed.
+        writeAndSync(USAGE_JOURNAL_FILE, JSON.stringify(record) + '\n', 'a');
+        return null;
+      } catch (err) {
+        return { kind: 'journal-failed', message: String((err && err.message) || err), at: Date.now() };
+      }
+    }
 
     function flushSave() {
       if (saveDisposer) { saveDisposer(); saveDisposer = null; }
       try {
         mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
-        // 原子写：先写临时文件再 rename，避免进程崩溃/写一半留下损坏 JSON 导致历史归零
-        const tmp = DATA_FILE + '.tmp';
-        writeFileSync(tmp, JSON.stringify(usageRecords), { mode: 0o600 });
+        // The append-only journal has already made each record durable.  This
+        // snapshot is a recovery/cache layer, so an overlapping older process
+        // can no longer erase newer records by writing stale memory here.
+        const tmp = DATA_TEMP_PREFIX + process.pid + '.' + randomUUID();
+        writeAndSync(tmp, JSON.stringify(usageRecords), 'w');
+        if (existsSync(DATA_FILE)) {
+          try { renameSync(DATA_FILE, DATA_BACKUP_FILE); } catch (err) { /* replacement below is still atomic */ }
+        }
         renameSync(tmp, DATA_FILE);
         dirty = false; // 写盘成功后才清除脏标记：失败时保留，卸载冲刷可重试
-      } catch (err) { /* 落盘失败不影响主流程；保留 dirty，下次记账/卸载时重试 */ console.warn('[dsh-bottom-info-bar] 记账落盘失败', String((err && err.message) || err)); }
+        if (ledgerError && ledgerError.kind === 'snapshot-stale') ledgerError = null;
+      } catch (err) {
+        // The journal remains authoritative, but tell the user that the
+        // directly readable snapshot has not caught up yet.
+        ledgerError = { kind: 'snapshot-stale', message: String((err && err.message) || err), at: Date.now() };
+        console.warn('[dsh-bottom-info-bar] 记账快照落盘失败', ledgerError.message);
+      }
     }
 
     // 防抖落盘：记账后 4s 内合并写入；插件卸载时立即冲刷
@@ -834,11 +948,23 @@ export default {
       }, 4000);
     }
 
-    function recordUsage(options, usage) {
+    // Persist the one-time legacy-id migration even if the user makes no new
+    // request before restarting again.
+    if (dirty) scheduleSave();
+
+    function hasUsageTokens(usage) {
+      if (!usage || typeof usage !== 'object') return false;
+      return ['uncachedInputTokens', 'inputTokens', 'cacheReadTokens', 'cacheWriteTokens', 'outputTokens'].some(function (key) {
+        return usage[key] != null;
+      });
+    }
+
+    function recordUsage(options, usage, status) {
       const u = usage || {};
       // 数值清洗：uncachedInputTokens 的 != null 对 NaN 恒真、|| 0 挡不住 Infinity/负值——
       // 统一 sanitizeTokens（NaN/Infinity/负数/非数字 → 0），坏数值不进内存汇总也不落盘
       const rec = {
+        id: randomUUID(),
         ts: Date.now(),
         model: options.model || '',
         provider: options.provider || '',
@@ -848,10 +974,30 @@ export default {
         cacheRead: sanitizeTokens(u.cacheReadTokens),
         cacheWrite: sanitizeTokens(u.cacheWriteTokens),
         output: sanitizeTokens(u.outputTokens),
+        status: status === 'interrupted' ? 'interrupted' : 'completed',
       };
+      // Freeze the actual price at usage time.  Historical totals must not
+      // change merely because the plugin's reference price table is updated.
+      const billed = costOf(rec, false);
+      if (billed != null) {
+        rec.currency = modelCurrency(rec.model);
+        rec.cost = billed;
+        rec.pricingStatus = 'priced';
+        rec.pricingVersion = 'builtin-' + packageVersion();
+      } else {
+        rec.pricingStatus = 'unpriced';
+        rec.pricingVersion = null;
+      }
+      const writeError = appendUsageJournal(rec);
+      if (writeError) {
+        ledgerError = writeError;
+        console.warn('[dsh-bottom-info-bar] 记账日志追加失败', writeError.message);
+        return false;
+      }
       usageRecords.push(rec);
-      if (usageRecords.length > 3000) usageRecords.splice(0, usageRecords.length - 3000);
+      ledgerError = null;
       scheduleSave();
+      return true;
     }
 
     ctx.on('llm/stream', async function* (options, next) {
@@ -862,15 +1008,32 @@ export default {
         console.warn('[dsh-bottom-info-bar] llm/stream 获取失败，本次不记账', String((err && err.message) || err));
         throw err; // 保持错误向上传播：不把上游失败消化成空流（仅跳过记账逻辑）
       }
+      let latestUsage = null;
+      let sawFinish = false;
+      let committed = false;
+      function commitUsage(status) {
+        if (committed || !hasUsageTokens(latestUsage)) return;
+        committed = true;
+        try { recordUsage(options, latestUsage, status); } catch (err) {
+          ledgerError = { kind: 'journal-failed', message: String((err && err.message) || err), at: Date.now() };
+          console.warn('[dsh-bottom-info-bar] 本次账单未保存', ledgerError.message);
+        }
+      }
       try {
         for await (const chunk of stream) {
           if (chunk && chunk.type === 'usage' && chunk.usage) {
-            try { recordUsage(options, chunk.usage); } catch (err) { /* 记账失败不影响请求 */ }
+            // DSH usage chunks are treated as snapshots.  Keep the last one
+            // and commit it once when this model response finishes.
+            latestUsage = Object.assign({}, chunk.usage);
           }
+          if (chunk && chunk.type === 'finish') sawFinish = true;
           yield chunk;
         }
       } catch (err) {
+        commitUsage('interrupted');
         throw err;
+      } finally {
+        commitUsage(sawFinish ? 'completed' : 'interrupted');
       }
     });
 
@@ -883,6 +1046,9 @@ export default {
 
     // ---------- 花费计算 ----------
     function costOf(record, forceOffpeak) {
+      // v2 ledger records carry the charge as observed.  Use it for normal
+      // reporting; only the "all-offpeak" forecast intentionally recalculates.
+      if (!forceOffpeak && Number.isFinite(record.cost) && record.cost >= 0) return record.cost;
       const entry = PRICING[record.model];
       if (!entry) return null;
       let p;
@@ -921,7 +1087,7 @@ export default {
         s.output += r.output;
         const c = costOf(r, false);
         if (c != null) {
-          const cur = modelCurrency(r.model);
+          const cur = recordCurrency(r);
           s.costs[cur] = (s.costs[cur] || 0) + c;
         }
         if (r.ts > s.lastTs) s.lastTs = r.ts;
@@ -981,6 +1147,12 @@ export default {
       return modelCurrency(sel.model);
     }
 
+    function recordCurrency(record) {
+      return record && typeof record.currency === 'string' && record.currency.length > 0
+        ? record.currency
+        : modelCurrency(record && record.model);
+    }
+
     function spendSummary(nowMs, selection) {
       const sel = selection || modelSelection();
       const snap = balances[balanceProviderKey(sel.provider || config.activeProvider)] || { data: null };
@@ -993,7 +1165,7 @@ export default {
       for (let i = 0; i < usageRecords.length; i++) {
         const r = usageRecords[i];
         if (r.ts < cutoff) continue;
-        if (modelCurrency(r.model) !== cur) continue; // 只聚合活动币种，避免跨币种相加
+        if (recordCurrency(r) !== cur) continue; // 只聚合活动币种，避免跨币种相加
         const c = costOf(r, false);
         if (c == null) continue;
         total += c;
@@ -1026,7 +1198,7 @@ export default {
       for (let i = 0; i < usageRecords.length; i++) {
         const r = usageRecords[i];
         if (beijingDayKey(r.ts) !== key) continue;
-        if (modelCurrency(r.model) !== cur) continue;
+        if (recordCurrency(r) !== cur) continue;
         const c = costOf(r, false);
         if (c != null) total += c;
       }
@@ -1043,7 +1215,7 @@ export default {
         const r = usageRecords[i];
         const rd = new Date(r.ts + 8 * 3600 * 1000);
         if (rd.getUTCFullYear() + '-' + String(rd.getUTCMonth() + 1).padStart(2, '0') !== key) continue;
-        if (modelCurrency(r.model) !== cur) continue;
+        if (recordCurrency(r) !== cur) continue;
         const c = costOf(r, false);
         if (c != null) total += c;
       }
@@ -1056,7 +1228,7 @@ export default {
       for (let i = 0; i < usageRecords.length; i++) {
         const r = usageRecords[i];
         if (r.ts < cutoff) continue;
-        if (modelCurrency(r.model) !== cur) continue;
+        if (recordCurrency(r) !== cur) continue;
         const c = costOf(r, false);
         if (c != null) total += c;
       }
@@ -1145,7 +1317,7 @@ export default {
       let total = 0;
       for (let i = 0; i < usageRecords.length; i++) {
         const r = usageRecords[i];
-        if (modelCurrency(r.model) !== cur) continue;
+        if (recordCurrency(r) !== cur) continue;
         const c = costOf(r, false);
         if (c != null) total += c;
       }
@@ -1164,6 +1336,7 @@ export default {
         monthSpend: monthSpend(nowMs, selection),
         last30dSpend: last30dSpend(nowMs, selection),
         totalSpend: totalSpend(selection),
+        persistence: ledgerError ? { state: ledgerError.kind, message: ledgerError.message, at: ledgerError.at } : { state: 'ok', message: null, at: null },
         now: nowMs,
       };
     }

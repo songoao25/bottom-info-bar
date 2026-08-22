@@ -30,6 +30,8 @@ const cases = [
   ['test-spend-accounting（host.js）', ['tests/test-spend-accounting.js'], join(root), process.execPath],
   ['test-dual-mode（host.js 双模式逻辑 + client 订阅渲染）', ['tests/test-dual-mode.js'], join(root), process.execPath],
   ['test-usage-sanitize（host.js 记账数值清洗）', ['tests/test-usage-sanitize.js'], join(root), process.execPath],
+  ['test-usage-ledger（耐久账本与历史价格）', ['tests/test-usage-ledger.mjs'], join(root), process.execPath],
+  ['test-usage-stream-ledger（每次回答只记一笔）', ['tests/test-usage-stream-ledger.mjs'], join(root), process.execPath],
   ['test-host-regressions（host.js 审计必修项回归）', ['tests/test-host-regressions.mjs'], join(root), process.execPath],
   ['test-update-check（启动版本检查与红色提醒）', ['tests/test-update-check.js'], join(root), process.execPath],
   ['check-host（host.js）', ['tests/check-host.js', HOST], join(root), process.execPath],

@@ -94,9 +94,15 @@ function installStyles() {
   style.dataset.plugin = 'dsh-bottom-info-bar';
   style.dataset.pluginCss = id;
   style.textContent = `
-      .bi-root { --bi-label-primary: var(--dsw-alias-label-primary, #333); --bi-label-tertiary: var(--dsw-alias-label-tertiary, rgba(128,128,128,0.9)); --bi-separator: var(--dsw-alias-separator-primary, rgba(128,128,128,0.5)); --bi-state-price-low: #15803d; --bi-state-alert: #d70015; text-align: center; max-width: var(--dsh-chat-content-width); box-sizing: border-box; width: 100%; padding: 4px calc(var(--dsh-composer-side-clearance) + 16px) 0px; margin: 0 auto; display: block; overflow: hidden; font-size: 12px; line-height: 20px; color: var(--bi-label-tertiary); font-variant-numeric: tabular-nums; cursor: pointer; }
-      @media (prefers-color-scheme: dark) { .bi-root { --bi-state-alert: #ff6961; } }
+      .bi-root { --bi-label-primary: var(--dsw-alias-label-primary, #333); --bi-label-tertiary: var(--dsw-alias-label-tertiary, rgba(128,128,128,0.9)); --bi-separator: var(--dsw-alias-separator-primary, rgba(128,128,128,0.5)); --bi-state-price-low: #166534; --bi-state-alert: #d70015; text-align: center; max-width: var(--dsh-chat-content-width); box-sizing: border-box; width: 100%; padding: 4px calc(var(--dsh-composer-side-clearance) + 16px) 0px; margin: 0 auto; display: block; overflow: hidden; font-size: 12px; line-height: 20px; color: var(--bi-label-tertiary); font-variant-numeric: tabular-nums; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+      .bi-root[data-density-saving="true"] { cursor: progress; }
+      @media (prefers-color-scheme: dark) { .bi-root { --bi-state-price-low: #86efac; --bi-state-alert: #ff6961; } }
       .bi-native-row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; width: 100%; }
+      /* 密度切换只收合完整模式独有的原生统计行：160ms 足以表达层级变化，又不会拖慢连续操作。 */
+      .bi-density-extra { display: grid; grid-template-rows: 1fr; opacity: 1; transform: translateY(0); transition: grid-template-rows 160ms cubic-bezier(0.2, 0, 0, 1), opacity 120ms linear, transform 160ms cubic-bezier(0.2, 0, 0, 1); }
+      .bi-density-extra-inner { min-height: 0; overflow: hidden; }
+      .bi-root[data-density="compact"] .bi-density-extra { grid-template-rows: 0fr; opacity: 0; transform: translateY(-2px); }
+      @media (prefers-reduced-motion: reduce) { .bi-density-extra { transition: none; transform: none; } }
       /* 整条信息栏始终作为一个居中的内容组；不会超过上方对话框的内容宽度。 */
       .bi-row2 { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; width: 100%; }
       .bi-native-row > span, .bi-row2 > span { white-space: nowrap; }
@@ -119,6 +125,8 @@ function installStyles() {
       .bi-model-provider, .bi-model-dot { display: inline-flex; align-items: center; height: 16px; line-height: 14px; }
       .bi-model-dot { margin: 0 4px; }
       .bi-vision { display: inline-flex; align-items: center; box-sizing: border-box; height: 16px; margin: 0; padding: 0 6px; border: 1px solid #3730a3; border-radius: 999px; color: #fff; background: #4f46e5; font-size: 12px; font-weight: 600; line-height: 14px; }
+      /* 会话目录未给出能力时，不先把模型错误画成文本模型；保留宽度，等待本地能力结果。 */
+      .bi-model-capability-pending { visibility: hidden; }
     `;
   document.head.appendChild(style);
   return function () { style.remove(); };
@@ -146,9 +154,11 @@ module.exports = {
 
     // ---------- 注册：一体替换（同 id 'stats'） ----------
     let density = 'full';
-    let toggling = false; // 防抖：rpc 异步期间禁止重复切换（只允许 full/compact 两态）
-    let injectReady = false;
+    let toggling = false; // 持久化期间禁止重复切换（只允许 full/compact 两态）
+    let densityVersion = 0;
     let occupantDispose = null;
+    const densityListeners = new Set();
+    const densityBusyListeners = new Set();
     // Survives composer remounts, so returning to an already visited session
     // does not require even one paint of an intermediate state.
     const sessionModelCache = new Map();
@@ -163,31 +173,46 @@ module.exports = {
       );
     }
 
+    // 不重新注册 slot：保留同一个 React 树，CSS 才能连续地收合/展开行高。
+    function setDensity(next) {
+      density = next;
+      densityListeners.forEach(function (listener) { listener(next); });
+    }
+
+    function setDensitySaving(next) {
+      toggling = next;
+      densityBusyListeners.forEach(function (listener) { listener(next); });
+    }
+
     function onToggleDensity() {
       if (toggling) return; // 切换进行中，忽略连点
-      toggling = true;
+      const requestVersion = ++densityVersion;
+      setDensitySaving(true);
+      const previous = density;
       const next = density === 'full' ? 'compact' : 'full';
+      // 交互反馈不等网络；写入失败才回退，避免慢网络让点击看似没有生效。
+      setDensity(next);
       rpc('setInfoDensity', { density: next }).then(function () {
-        density = next;
-        toggling = false;
-        applyMode();
+        if (requestVersion === densityVersion) setDensitySaving(false);
       }).catch(function (err) {
-        toggling = false;
+        if (requestVersion !== densityVersion) return;
+        setDensitySaving(false);
+        if (density === next) setDensity(previous);
         console.error('Bottom Info Bar 切换信息密度失败', err);
       });
     }
 
     slots.inject('conversation.composer.dock', function () {
-      injectReady = true;
       applyMode();
       return function () { if (occupantDispose) occupantDispose(); };
     });
 
+    const initialDensityVersion = densityVersion;
     try {
       const cfg = await rpc('getConfig');
-      if (cfg && (cfg.infoDensity === 'full' || cfg.infoDensity === 'compact') && cfg.infoDensity !== density) {
-        density = cfg.infoDensity;
-        if (injectReady) applyMode();
+      // 用户已经作出新选择时，绝不让启动阶段的旧配置覆盖它。
+      if (initialDensityVersion === densityVersion && cfg && (cfg.infoDensity === 'full' || cfg.infoDensity === 'compact') && cfg.infoDensity !== density) {
+        setDensity(cfg.infoDensity);
       }
     } catch (err) { /* 默认完整 */ }
 
@@ -208,6 +233,21 @@ module.exports = {
       // process-wide default for newly-created Agents.
       const [sessionModel, setSessionModel] = React.useState(null);
       const [modelSource, setModelSource] = React.useState('pending');
+      const [displayDensity, setDisplayDensity] = React.useState(props.density);
+      const [isDensitySaving, setIsDensitySaving] = React.useState(toggling);
+
+      // 外层持有持久化后的密度；组件只订阅数值变化，避免 slot 卸载重建打断动画。
+      React.useEffect(function () {
+        densityListeners.add(setDisplayDensity);
+        densityBusyListeners.add(setIsDensitySaving);
+        // 订阅前后没有异步间隙：立即回读，避免首次 effect 建立前的更新丢失。
+        setDisplayDensity(density);
+        setIsDensitySaving(toggling);
+        return function () {
+          densityListeners.delete(setDisplayDensity);
+          densityBusyListeners.delete(setIsDensitySaving);
+        };
+      }, []);
 
       // 当前会话 ID 多路获取：slotProps 标准 kit → session 快照 → 运行时 sessions 服务
       // （DSH 各版本注入方式不同，任一路可用即拿到真实会话 ID，避免回退到上一会话的账）
@@ -250,12 +290,15 @@ module.exports = {
             if (!selected || typeof selected.provider !== 'string' || typeof selected.model !== 'string') return;
             const group = Array.isArray(snapshot.groups) ? snapshot.groups.find(function (g) { return g && g.id === selected.provider; }) : null;
             const model = group && Array.isArray(group.models) ? group.models.find(function (m) { return m && m.id === selected.model; }) : null;
+            const inputModalities = model && Array.isArray(model.inputModalities) ? model.inputModalities : null;
             const value = {
               sessionId: sessionId,
               provider: selected.provider,
               model: selected.model,
               providerDisplay: group && typeof group.name === 'string' ? group.name : selected.provider,
               modelDisplay: model && typeof model.name === 'string' ? model.name : selected.model,
+              // true/false 来自 DSH 的明确目录 metadata；null 表示仍待 host 查询，不能误画成文本模型。
+              acceptsImageInput: inputModalities === null ? null : inputModalities.indexOf('image') !== -1,
             };
             sessionModelCache.set(sessionId, value);
             setSessionModel(value);
@@ -342,7 +385,7 @@ module.exports = {
       const waitForSessionModel = !!sessionId && modelSource !== 'unavailable' && !activeSessionModel;
       const visiblePricing = activeSessionModel && (!state.pricing
         || state.pricing.provider !== activeSessionModel.provider || state.pricing.model !== activeSessionModel.model)
-        ? { provider: activeSessionModel.provider, model: activeSessionModel.model, providerDisplay: activeSessionModel.providerDisplay, modelDisplay: activeSessionModel.modelDisplay, mode: 'unknown', acceptsImageInput: false }
+        ? { provider: activeSessionModel.provider, model: activeSessionModel.model, providerDisplay: activeSessionModel.providerDisplay, modelDisplay: activeSessionModel.modelDisplay, mode: 'unknown', acceptsImageInput: activeSessionModel.acceptsImageInput }
         : (waitForSessionModel ? null : state.pricing);
       const visibleBillingMode = activeSessionModel && (!state.billingMode
         || state.billingMode.provider !== activeSessionModel.provider || state.billingMode.model !== activeSessionModel.model)
@@ -419,6 +462,9 @@ module.exports = {
 
       // 仅在 DSH 模型目录明确声明 inputModalities 包含 image 时，将“完整模型名 视觉”合并为一个椭圆。
       function modelLabelWithCapability(pr, modelLabel) {
+        if (pr && pr.acceptsImageInput === null) {
+          return React.createElement('span', { className: 'bi-model-capability-pending', 'aria-hidden': 'true' }, modelLabel);
+        }
         if (!pr || pr.acceptsImageInput !== true) return modelLabel;
         return React.createElement('span', { className: 'bi-vision', title: '支持图像输入。' }, modelLabel, ' 视觉');
       }
@@ -449,6 +495,12 @@ module.exports = {
             : (pr && pr.mode === 'flat' ? '定价：固定价' : '定价：未收录，按默认计'))
           + versionLine;
         if (pr && pr.acceptsImageInput === true) {
+          return React.createElement('span', { key: 'prov', className: 'bi-model-group', title: provTitle },
+            React.createElement('b', { className: 'bi-model-provider' }, provLabel),
+            modelSeparator(),
+            modelLabelWithCapability(pr, modelLabelWithoutProvider(modelLabel, provLabel)));
+        }
+        if (pr && pr.acceptsImageInput === null) {
           return React.createElement('span', { key: 'prov', className: 'bi-model-group', title: provTitle },
             React.createElement('b', { className: 'bi-model-provider' }, provLabel),
             modelSeparator(),
@@ -657,7 +709,7 @@ module.exports = {
       // 报错不打断主要信息的阅读顺序：统一延后到整行最右侧。
       const trailingErrorGroups = [];
       // 两态严格判定：density 只能是 'full' 或 'compact'（host 校验 + 本地防抖保证）
-      const full = props.density === 'full';
+      const full = displayDensity === 'full';
       // 模式互斥：订阅制渲染订阅版 row2，余额制渲染 v1.0.0 现状，绝不叠加
       const isSub = !!(visibleBillingMode && visibleBillingMode.mode === 'subscription');
       // Never paint a loading placeholder.  Before the active session's model
@@ -682,6 +734,16 @@ module.exports = {
       if (failedLabels.length > 0) {
         trailingErrorGroups.push(React.createElement('span', { className: 'bi-stale', key: 'degraded',
           title: failedLabels.join('、') + '暂不可用；正在保留上次数据并自动重试。' }, '刷新失败'));
+      }
+      const persistence = state.usage && state.usage.persistence;
+      if (persistence && persistence.state && persistence.state !== 'ok') {
+        const snapshotOnly = persistence.state === 'snapshot-stale';
+        trailingErrorGroups.push(React.createElement('span', {
+          className: snapshotOnly ? 'bi-stale' : 'bi-err', key: 'ledger-save',
+          title: snapshotOnly
+            ? '账单流水已保存，但可直接查看的账单文件暂未更新：' + (persistence.message || '未知原因')
+            : '本次账单未保存，不会计入金额：' + (persistence.message || '未知原因'),
+        }, snapshotOnly ? '账单待整理' : '账单未保存'));
       }
 
        if (updateInfo && updateInfo.available === true) {
@@ -712,7 +774,7 @@ module.exports = {
       const row2 = React.createElement('div', { className: 'bi-row2' }, ...nodes);
 
       let row1 = null;
-      if (full && statsProj) {
+      if (statsProj) {
         // 每组：{ nodes: React 节点数组（数字用 num 加粗）, text: 纯文本（title 用） }
         const ng = [];
         function group(parts, hidden) {
@@ -757,12 +819,28 @@ module.exports = {
         row1 = React.createElement('div', { className: 'bi-native-row', title: nativeLine }, ...ngNodes);
       }
 
+      const animatedRow1 = row1 === null ? null : React.createElement('div', { className: 'bi-density-extra' },
+        React.createElement('div', { className: 'bi-density-extra-inner' }, row1));
       const rootCls = 'bi-root';
       return React.createElement('div', {
         className: rootCls,
         onClick: function () { props.onToggleDensity(); },
-        title: '单击切换 完整/简洁',
-      }, row1, row2);
+        onKeyDown: function (event) {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            props.onToggleDensity();
+          }
+        },
+        role: 'button',
+        tabIndex: 0,
+        'aria-label': full ? '切换为简洁模式' : '切换为完整模式',
+        'aria-pressed': full,
+        'aria-busy': isDensitySaving,
+        'aria-disabled': isDensitySaving,
+        'data-density': displayDensity,
+        'data-density-saving': isDensitySaving,
+        title: isDensitySaving ? '正在保存切换…' : '单击切换 完整/简洁',
+      }, animatedRow1, row2);
     }
   },
 };
