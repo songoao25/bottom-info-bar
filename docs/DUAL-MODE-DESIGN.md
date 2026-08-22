@@ -49,7 +49,7 @@ hover：定价明细 / 今天·近一月·全部花费
 hover（title）浮窗：订阅源 + 套餐名 + 三窗口各自明细（标签、已用百分比、重置时刻、重置剩余）。
 
 - 窗口缺失（如 Codex 无 5 小时窗口）→ 该标签跳过不显示、不占位、不报错
-- 预警：任一窗口 usedPercent ≥ 90% → 红色 ⚠ 提示（title 说明是哪个窗口告急）
+- 预警：任一窗口剩余 ≤20%（usedPercent ≥80%）→ 红色百分比与无框 `低` 字提示（title 说明是哪个窗口告急）
 - compact 密度下订阅制显示适当精简（至少显示最紧窗口）
 - 布局预算示例：`OpenCode Go · DeepSeek V4 Flash | 5h 9% · 周 62% · 月 40% | 距重置 1d 21h`，字符量满足 684px 预算
 
@@ -67,7 +67,7 @@ host 端所有订阅源产出同一结构，client 端一套渲染：
   provider: 'codex' | 'opencode-go',
   plan: 'ChatGPT Plus' | 'OpenCode Go',   // 显示名
   windows: [
-    { key: 'five_hour', label: '5小时', usedPercent: 9,  resetsAt: 1784000000000 },
+    { key: 'five_hour', label: '5 小时', usedPercent: 9,  resetsAt: 1784000000000 },
     { key: 'seven_day', label: '周',    usedPercent: 62, resetsAt: 1785000000000 },
     { key: 'monthly',   label: '月',    usedPercent: 40, resetsAt: 1787000000000 },
   ],
@@ -114,11 +114,11 @@ host 端所有订阅源产出同一结构，client 端一套渲染：
 ## 七、验收标准（Gate）
 1. provider=codex/opencode-go 时 row2 显示订阅制版；provider=deepseek 时显示余额制版；切换 provider 后 row2 内容替换、无叠加。
 2. Codex 真实连通（或 mock）：周窗口显示百分比+重置倒计时；5 小时窗口缺失时不显示、不报错。
-3. 任一窗口 ≥90% 显示 ⚠；全部 <90% 无 ⚠。
+3. 任一窗口剩余 ≤20% 显示红色百分比与无框 `低` 字；全部剩余 >20% 不显示预警。
 4. 订阅源请求失败时保留上次快照并显示"刷新失败"提示；无快照时显示明确错误文案。
 5. 布局：行宽不超 684px 可用预算（省位置版）；居中；单击仍可切换密度。
-6. row1 原生统计行像素级不变（对比 v1.0.0 快照）。
-7. tests/run-all.mjs 全绿（6/6 旧用例 + 新增用例）。
+6. row1 保留轮次、步骤、LLM/工具耗时、缓存命中及输入/输出 token；允许为统一排版调整字重与间距。
+7. tests/run-all.mjs 的全部测试项全绿。
 8. 未配置 OpenCode Go 时显示引导文案，不崩溃。
 
 ## 八、工作量

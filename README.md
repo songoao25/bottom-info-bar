@@ -18,18 +18,18 @@ From top to bottom, the combined screenshot shows **ChatGPT subscription**, **De
 ## Features
 
 - **Dual-mode billing bar** — Auto-detects whether the active provider is subscription-based (Codex / OpenCode Go) or balance-based. The two modes replace each other, never overlap; balance mode stays exactly as before.
-- **Subscription quota display (ChatGPT & OpenCode Go)** — When the active provider is a subscription service, the bar shows the **subscription service + model** (e.g. `OpenCode Go · V4 Flash`), the **5-hour / weekly / monthly quota remaining** per window (remaining = 100 − used, bold and color-coded: **green when >20% remaining**, **amber when ≤20%**), and a **countdown to the next reset** (e.g. `距重置 1d 21h`). In compact mode the shortest-duration window is shown (5-hour preferred; falls back to weekly/monthly if unavailable); in full mode all three windows appear. A ⚠ alert appears when any window drops to 20% or less remaining. Quota is pulled from **two subscription sources**:
-  - **ChatGPT / Codex** — reads your ChatGPT subscription quota (Plus / Pro / Team / Enterprise) read-only from `~/.codex/auth.json`. Binding, token refresh and the `openai-codex` model route are **not part of this plugin** — install the companion plugin [**dsh-chatgpt-subscription**](https://github.com/songoao25) (separate repo) to bind your ChatGPT account; this bar only reads the token to display quota. Missing/expired token → "not bound / re-bind" hint instead of an error. **Hover over "⚠ refresh failed"** for details on auto-retry behavior.
+- **Subscription quota display (ChatGPT & OpenCode Go)** — When the active provider is a subscription service, the bar shows the **subscription service · model** (e.g. `OpenCode Go · V4 Flash`), the **5-hour / weekly / monthly quota remaining** per window (remaining = 100 − used), and a **countdown to the next reset** (e.g. `距重置 1d 21h`). Remaining quota is neutral by default; at 20% or less, the percentage and adjacent `低` status turn alert red, so the warning doesn’t rely on color alone. In compact mode the shortest-duration window is shown (5-hour preferred; falls back to weekly/monthly if unavailable); in full mode all three windows appear. Quota is pulled from **two subscription sources**:
+  - **ChatGPT / Codex** — reads your ChatGPT subscription quota (Plus / Pro / Team / Enterprise) read-only from `~/.codex/auth.json`. Binding, token refresh and the `openai-codex` model route are **not part of this plugin** — install the companion plugin [**dsh-chatgpt-subscription**](https://github.com/songoao25) (separate repo) to bind your ChatGPT account; this bar only reads the token to display quota. Missing/expired token → "not bound / re-bind" hint instead of an error. Hover over `刷新失败` for details on auto-retry behavior.
   - **OpenCode Go** — reads quota from `opencode.ai/zen/go/v1/usage` via `OPENCODE_GO_API_KEY` (Settings → Models) or the opencode CLI login (`~/.local/share/opencode/auth.json`); missing key → "not configured" hint instead of an error.
   Both sources show the remaining quota and the **reset time** for each of the 5-hour / weekly / monthly windows, so you always know when your quota renews. **Quota and countdown always match** — both come from the same window.
 - **Drop-in replacement** — Replaces the native stats row while keeping its core original information (turns/steps, LLM latency, tool calls, cache hit rate, in/out tokens) with a native-consistent layout. Speed metrics (TTFT, tok/s) move to the hover tooltip so the row stays on a single line.
-- **Provider & model detection** — Shows the provider and model names exactly as in the model switcher (from the DSH LLM catalog, e.g. `DeepSeek-V4-Flash`); the provider name is bold, and is omitted when it is already a prefix of the model name.
+- **Provider & model detection** — Always shows provider and model separately, exactly as in the DSH LLM catalog (for example, `DeepSeek · V4-Flash`). The provider is bold; when a catalog model name repeats its provider prefix, only that duplicate prefix is removed from the model part.
 - **Live balance** — Fetches real balance from DeepSeek's `/user/balance` API, auto-refreshes every 60 s, and keeps the last known snapshot on failure so usage is never interrupted.
-- **Peak / off-peak pricing** — Shows peak (amber, bold) and off-peak (green, bold) prices with a countdown to the next switch; hidden automatically for providers without tiered pricing.
+- **Peak / off-peak pricing** — Shows peak (alert red, bold) and off-peak (green, bold) prices with a countdown to the next switch; hidden automatically for providers without tiered pricing. The text labels remain visible in both appearances.
 - **Real spend tracking** — Records every `llm/stream` request (usage × unit price) and aggregates precisely by **this conversation / today / this month / all time**. Records are persisted to disk — nothing is lost on restart.
 - **Bold numbers** — Balance, countdown, spend, and all stats are rendered with bold numerals for instant readability.
 - **Full / compact toggle** — Click the bar to switch between two strict modes (debounced).
-- **Low-balance alert** — Shows ⚠ when the balance drops below ¥20.
+- **Low-balance alert** — When the balance drops below ¥20, its amount and adjacent `低` status turn alert red.
 
 ## Requirements
 
@@ -95,15 +95,19 @@ All spend data lives in the plugin's own data directory, isolated from other plu
 
 ```
 ~/.dsh/dsh-bottom-info-bar/
-└── usage-records.json      # per-request usage ledger (persisted across restarts)
+├── usage-records.json           # the complete, human-readable bill to open
+├── usage-records.journal.jsonl  # recovery journal; do not edit manually
+└── usage-records.json.bak       # previous complete snapshot for recovery
 ```
 
 - **Location**: `~/.dsh/dsh-bottom-info-bar/` (directory mode `0700`, file mode `0600` — readable only by the current user).
 - **Override**: set the environment variable `DSH_BOTTOM_INFO_BAR_DATA_DIR` to relocate the whole data directory (e.g. an external drive or a synced folder).
-- **Contents**: one entry per `llm/stream` request (`ts / model / provider / sessionId / input / cacheRead / cacheWrite / output`). No conversation content and no API keys are ever stored.
-- **Retention**: capped at 3,000 entries (oldest first).
-- **Spend scope**: aggregated in the active provider's currency (CNY for DeepSeek, USD for the OpenAI reference prices); records in other currencies are not mixed in. Models absent from the pricing table are excluded.
-- **Reset**: delete the file to clear all statistics. Uninstalling the plugin does not delete your data.
+- **View and migrate**: open `usage-records.json` in any text editor to inspect every recorded model response. To back up or move to another computer, copy the entire `~/.dsh/dsh-bottom-info-bar/` directory while DSH is closed.
+- **Contents**: one entry per model response (`id / ts / model / provider / sessionId / input / cacheRead / cacheWrite / output / currency / cost / status`). `status` is `completed` or `interrupted`; an interrupted response can still have confirmed billable usage. The billed price is fixed when the response completes, so later price-table updates never rewrite historical totals. Unknown-price models keep their token usage with `pricingStatus: "unpriced"` and are not given an invented cost. No conversation content, prompts, or API keys are ever stored.
+- **Durability**: the journal is synchronously confirmed before the UI includes a new bill. If that write fails, the bar says “账单未保存” and the amount is not added. The readable JSON snapshot is rebuilt in the background; if it is damaged after an interruption, the last good snapshot and every intact journal line are recovered automatically. Do not manually edit the journal or backup file.
+- **Retention**: no silent entry cap. Keep the directory in normal user backups if you need long-term retention beyond this machine.
+- **Spend scope**: money is aggregated only in the active provider's currency (CNY for DeepSeek, USD for the OpenAI reference prices); records in other currencies are not mixed in. Models absent from the pricing table remain visible in the ledger but are excluded from money totals.
+- **Reset**: delete the whole `~/.dsh/dsh-bottom-info-bar/` directory to clear all statistics. Uninstalling the plugin does not delete your data.
 
 ## Uninstall
 
@@ -123,10 +127,10 @@ After restarting, the native stats row returns automatically with no residue (th
 |---|---|
 | Bar does not appear after a page refresh | **Restart** `dsh web` (the host process loads plugins) |
 | Balance shows "DEEPSEEK_API_KEY not configured" | Add the key under Settings → Models |
-| Balance shows "⚠ refresh failed, showing last snapshot" | Transient network/key issue; retries automatically after 60 s. The last successful data is kept so the bar never goes blank. **Hover over the warning** for a detailed explanation and retry timing. |
+| Balance shows "刷新失败" while a balance remains visible | Transient network/key issue; retries automatically after 60 s. The last successful data is kept so the bar never goes blank. **Hover over the warning** for a detailed explanation and retry timing. |
 | Shows "OpenCode Go not configured" | Add `OPENCODE_GO_API_KEY` under Settings → Models, or configure OpenCode Go in the opencode CLI |
 | How do I bind my ChatGPT subscription? | Install the companion plugin **dsh-chatgpt-subscription** and authorize on the official page — it maintains the token this bar reads for quota display |
-| ChatGPT quotas look wrong or empty | The wham endpoint is undocumented and may change; failures keep the last snapshot and retry every 60 s. Hover over "⚠ refresh failed" to see the retry explanation. |
+| ChatGPT quotas look wrong or empty | The wham endpoint is undocumented and may change; failures keep the last snapshot and retry every 60 s. Hover over `刷新失败` to see the retry explanation. |
 | Why does compact mode show a different window? | Compact mode prioritizes the shortest-duration window (5-hour > weekly > monthly) because it refreshes fastest. If the 5-hour window is unavailable, it falls back to weekly or monthly. **Quota and countdown always match** — both come from the same window. |
 | Why is the model's reasoning process not shown? | DSH does not render the model's internal reasoning in the UI — a DSH interface-layer limitation, not the plugin's |
 | Want the original stats row back | Uninstall the plugin and restart |

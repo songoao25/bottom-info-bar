@@ -12,19 +12,19 @@
 | 1 | provider 检测 + 互斥替换无叠加 | ✅ | codex/chatgpt/opencode-go/opencode→订阅制；deepseek 等→余额制；billingMode auto/manual 覆盖；client if/else 严格互斥 |
 | 2 | 订阅制只显示三类信息（模型名称/额度/重置时间） | ✅ | 订阅服务+模型（`Codex · GPT 5 Codex`）+ 三窗口（`5h 9% · 周 62% · 月 40%`）+ 距重置倒计时（`距重置 1d 21h`）；余额/时段/距高峰/本对话花费/本对话 token 用量均不渲染（防回归测试断言） |
 | 3 | 窗口缺失（Codex 无 5h）跳过不报错 | ✅ | 真实响应实测（仅周窗口 43%）；parseCodexUsage 跳过未知/缺失窗口 |
-| 4 | 任一窗口 ≥90% ⚠；全部 <90% 无 ⚠ | ✅ | WINDOW_ALERT_PERCENT=90 双端一致；title 点名告急窗口 |
-| 5 | 失败保留旧快照 + 提示；无快照明确错误 | ✅ | mergeSubscriptionResult 单测（失败保留 data/fetchedAt 仅换 error）；client「⚠ 刷新失败，显示上次快照」/「未配置 OpenCode Go」引导 |
+| 4 | 任一窗口剩余 ≤20% 显示警示；全部剩余 >20% 无预警 | ✅ | 当前由客户端 `LOW_QUOTA_PERCENT=20` 判定；警示为红色百分比 + 无框 `低` 字，title 点名告急窗口 |
+| 5 | 失败保留旧快照 + 提示；无快照明确错误 | ✅ | mergeSubscriptionResult 单测（失败保留 data/fetchedAt 仅换 error）；client 显示「刷新失败」/「未配置 OpenCode Go」引导 |
 | 6 | 行宽 ≤684px 居中、单击切密度 | ✅ | 布局估算：修复后最坏 458px（Codex 真实形态 427px），余量 ≥226px；.bi-root 居中 + onClick 密度切换 |
-| 7 | row1 原生统计行不变 | ✅ | 与 v1.0.0 逐字符相同（git 对比） |
+| 7 | row1 核心统计信息保留 | ✅ | 保留轮次、步骤、LLM/工具耗时、缓存命中及输入/输出 token；为统一标签与数值间距，排版已调整，不再声称逐字符或像素不变 |
 | 8 | 未配置 OpenCode Go 引导不崩溃 | ✅ | no-key → 引导文案 |
 
 ## 二、测试结果
 
-命令：`node tests/run-all.mjs`（7 文件全绿，EXIT=0）
+命令：`node tests/run-all.mjs`（14 个测试项全绿，EXIT=0）
 - smoke-static-host（含订阅模式冒烟：codex/opencode-go no-key、同源/跨源校验）
-- test-static-client 17 / test-display-name 22 / test-density-toggle 22 / test-spend-accounting 11
-- **test-dual-mode 90 断言**（模式检测/窗口映射边界/Codex 解析含窗口缺失/OpenCode Go 解析/快照失败回退/订阅分支静态防回归）
-- check-host（12 个 RPC handler 完整 + 关键函数齐备）
+- client 静态、故障容错、会话模型同步、显示名、密度、花费、双模式、账本、更新与 host 回归测试
+- **test-dual-mode 109 断言**（模式检测/窗口映射边界/Codex 解析含窗口缺失/OpenCode Go 解析/快照失败回退/订阅分支静态防回归）
+- check-host（13 个 RPC handler 完整 + 关键函数齐备）
 
 Codex 真实连通验证（2026-08-17，开发执行，token 不出本机）：chatgpt.com/backend-api/wham/usage → HTTP 200；真实响应顶层 rate_limit、plan_type=plus、仅 primary_window 604800s（周 43%）、5h 缺失 → 解析正确，正是设计预期的边界用例。
 
@@ -50,6 +50,6 @@ Codex 真实连通验证（2026-08-17，开发执行，token 不出本机）：c
 
 ## 五、结论
 
-**达到可发布状态。** 功能验收 8/8 通过，测试全绿（7 文件 90+ 断言），安全审计通过（高危 0 / 中危 0 / 低危均已处理或记录）。遗留项均不影响发布。发布前需用户确认 Gate 4，并重启 dsh web 生效（当前运行进程为旧版）。
+**达到可发布状态。** 功能验收 8/8 通过，测试全绿（14 个测试项，双模式 109 项断言），安全审计通过（高危 0 / 中危 0 / 低危均已处理或记录）。遗留项均不影响发布。发布前需用户确认 Gate 4，并重启 dsh web 生效（当前运行进程为旧版）。
 
 ---
