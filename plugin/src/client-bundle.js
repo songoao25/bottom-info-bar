@@ -94,9 +94,9 @@ function installStyles() {
   style.dataset.plugin = 'dsh-bottom-info-bar';
   style.dataset.pluginCss = id;
   style.textContent = `
-      .bi-root { --bi-label-primary: var(--dsw-alias-label-primary, #333); --bi-label-tertiary: var(--dsw-alias-label-tertiary, rgba(128,128,128,0.9)); --bi-separator: var(--dsw-alias-separator-primary, rgba(128,128,128,0.5)); --bi-state-price-low: #166534; --bi-state-alert: #d70015; text-align: center; max-width: var(--dsh-chat-content-width); box-sizing: border-box; width: 100%; padding: 4px calc(var(--dsh-composer-side-clearance) + 16px) 0px; margin: 0 auto; display: block; overflow: hidden; font-size: 12px; line-height: 20px; color: var(--bi-label-tertiary); font-variant-numeric: tabular-nums; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+      .bi-root { --bi-label-primary: var(--dsw-alias-label-primary, #333); --bi-label-supporting: #3f444a; --bi-separator: var(--dsw-alias-label-tertiary, rgba(128,128,128,0.5)); --bi-state-price-low: #064e3b; --bi-state-alert: #991b1b; text-align: center; max-width: var(--dsh-chat-content-width); box-sizing: border-box; width: 100%; padding: 4px calc(var(--dsh-composer-side-clearance) + 16px) 0px; margin: 0 auto; display: block; overflow: hidden; font-size: 12px; line-height: 20px; color: var(--bi-label-supporting); font-variant-numeric: tabular-nums; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
       .bi-root[data-density-saving="true"] { cursor: progress; }
-      @media (prefers-color-scheme: dark) { .bi-root { --bi-state-price-low: #86efac; --bi-state-alert: #ff6961; } }
+      @media (prefers-color-scheme: dark) { .bi-root { --bi-label-supporting: var(--dsw-alias-label-secondary, #cfd3d6); --bi-state-price-low: #86efac; --bi-state-alert: #ff6961; } }
       .bi-native-row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; width: 100%; }
       /* 密度切换只收合完整模式独有的原生统计行：160ms 足以表达层级变化，又不会拖慢连续操作。 */
       .bi-density-extra { display: grid; grid-template-rows: 1fr; opacity: 1; transform: translateY(0); transition: grid-template-rows 160ms cubic-bezier(0.2, 0, 0, 1), opacity 120ms linear, transform 160ms cubic-bezier(0.2, 0, 0, 1); }
@@ -115,7 +115,7 @@ function installStyles() {
       .bi-peak    { color: var(--bi-label-primary); font-weight: 700; }
       .bi-offpeak { color: var(--bi-state-price-low); font-weight: 700; }
       .bi-err, .bi-stale { color: var(--bi-state-alert); font-weight: 700; }
-      .bi-muted{ color: var(--bi-label-tertiary); }
+      .bi-muted{ color: var(--bi-label-supporting); }
       .bi-root b.bi-alert-num, .bi-root b.bi-quota-low { color: var(--bi-state-alert); font-weight: 700; }
       /* 新版本需要用户处理，与其他提醒使用统一鲜红色文字，不伪装成链接。 */
       .bi-update{ color: var(--bi-state-alert); font-weight: 600; }
@@ -124,7 +124,7 @@ function installStyles() {
       .bi-model-group { display: inline-flex; align-items: center; height: 20px; vertical-align: top; }
       .bi-model-provider, .bi-model-dot { display: inline-flex; align-items: center; height: 16px; line-height: 14px; }
       .bi-model-dot { margin: 0 4px; }
-      .bi-vision { display: inline-flex; align-items: center; box-sizing: border-box; height: 16px; margin: 0; padding: 0 6px; border: 1px solid #3730a3; border-radius: 999px; color: #fff; background: #4f46e5; font-size: 12px; font-weight: 600; line-height: 14px; }
+      .bi-vision { display: inline-flex; align-items: center; box-sizing: border-box; height: 16px; margin: 0; padding: 0 6px; border: 1px solid #0044cc; border-radius: 999px; color: #fff; background: #0057ff; font-size: 12px; font-weight: 600; line-height: 14px; }
       /* 会话目录未给出能力时，不先把模型错误画成文本模型；保留宽度，等待本地能力结果。 */
       .bi-model-capability-pending { visibility: hidden; }
     `;
