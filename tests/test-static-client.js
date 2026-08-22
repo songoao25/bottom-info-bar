@@ -49,13 +49,15 @@ check('高峰价使用主文字保证小字号可读', clientSrc.includes('.bi-p
 check('错误与警告保留语义色和字重', clientSrc.includes('.bi-err  { color: var(--bi-state-error); font-weight: 600; }')
   && clientSrc.includes('.bi-stale{ color: var(--bi-state-warning); font-weight: 600; }'), true);
 
-// 7) 视觉模型：仅 host 明确识别后展示，并为深浅色保留低饱和紫色变体
+// 7) 视觉模型：仅 host 明确识别后展示，复刻参考图的实色靛蓝椭圆
 check('视觉标识只接受 host 的显式 true，不通过名称猜测', clientSrc.includes("pr.acceptsImageInput !== true"), true);
-check('视觉模型名采用低饱和紫色椭圆、与标签行高对齐并适配深色', clientSrc.includes('.bi-vision {')
+check('视觉模型名采用参考图靛蓝实色椭圆、白字、深色细边且与标签行高对齐', clientSrc.includes('.bi-vision {')
   && clientSrc.includes('height: 20px')
   && clientSrc.includes('vertical-align: top')
   && clientSrc.includes('border-radius: 999px')
-  && clientSrc.includes('@media (prefers-color-scheme: dark) { .bi-vision'), true);
+  && clientSrc.includes('border: 1px solid #25269f')
+  && clientSrc.includes('color: #fff')
+  && clientSrc.includes('background: #3232d6'), true);
 
 console.log('\n结果：' + pass + ' PASS / ' + fail + ' FAIL');
 process.exit(fail > 0 ? 1 : 0);

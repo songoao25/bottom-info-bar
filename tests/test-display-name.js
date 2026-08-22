@@ -264,8 +264,9 @@ const settle = () => new Promise((r) => setTimeout(r, 40));
     clientSrc.includes('modelLabel.toLowerCase().indexOf(provLabel.toLowerCase()) === 0'), true);
   check('client 订阅制模型名同样用 DSH 目录名（modelDisplay）',
     clientSrc.includes("const modelLabel = (pr && pr.modelDisplay) ? pr.modelDisplay"), true);
-  check('client 只在 host 明确返回视觉能力时，将视觉与完整模型名合并为紫色椭圆',
-    clientSrc.includes("pr.acceptsImageInput !== true") && clientSrc.includes("'视觉 · ', modelLabel") && clientSrc.includes("支持图像输入。"), true);
+  check('client 只在 host 明确返回视觉能力时，复刻“模型名 视觉”靛蓝椭圆并将服务商置于椭圆外',
+    clientSrc.includes("pr.acceptsImageInput !== true") && clientSrc.includes("modelLabel, ' 视觉'")
+      && clientSrc.includes("modelLabelWithoutProvider(modelLabel, provLabel)") && clientSrc.includes("支持图像输入。"), true);
 
   fs.rmSync(tmpRoot, { recursive: true, force: true });
   console.log('\n结果：' + pass + ' PASS / ' + fail + ' FAIL');

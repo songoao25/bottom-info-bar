@@ -115,9 +115,8 @@ function installStyles() {
       .bi-quota-low { color: var(--bi-state-warning); font-weight: 700; }
       /* 有新版本是可处理的信息，不是错误，也不是链接。 */
       .bi-update{ color: var(--bi-state-info); font-weight: 600; }
-      /* 视觉能力是模型属性，不是告警：整个“视觉 + 模型名”使用低饱和脑紫色胶囊。 */
-      .bi-vision { display: inline-flex; align-items: center; box-sizing: border-box; height: 20px; margin: 0; padding: 0 7px; border-radius: 999px; color: #57419a; background: rgba(87, 65, 154, 0.12); font-size: 12px; font-weight: 600; line-height: 20px; vertical-align: top; }
-      @media (prefers-color-scheme: dark) { .bi-vision { color: #c9b8ff; background: rgba(201, 184, 255, 0.18); } }
+      /* 视觉能力是模型属性，不是告警：复刻参考图的靛蓝实色、白字、深色细边和 20px 行高。 */
+      .bi-vision { display: inline-flex; align-items: center; box-sizing: border-box; height: 20px; margin: 0; padding: 0 7px; border: 1px solid #25269f; border-radius: 999px; color: #fff; background: #3232d6; font-size: 12px; font-weight: 600; line-height: 18px; vertical-align: top; }
     `;
   document.head.appendChild(style);
   return function () { style.remove(); };
@@ -361,10 +360,16 @@ module.exports = {
         return React.createElement('b', { className: 'bi-num' }, String(t));
       }
 
-      // 仅在 DSH 模型目录明确声明 inputModalities 包含 image 时，将“视觉 + 完整模型名”合并为一个椭圆。
+      // 仅在 DSH 模型目录明确声明 inputModalities 包含 image 时，将“完整模型名 视觉”合并为一个椭圆。
       function modelLabelWithCapability(pr, modelLabel) {
         if (!pr || pr.acceptsImageInput !== true) return modelLabel;
-        return React.createElement('span', { className: 'bi-vision', title: '支持图像输入。' }, '视觉 · ', modelLabel);
+        return React.createElement('span', { className: 'bi-vision', title: '支持图像输入。' }, modelLabel, ' 视觉');
+      }
+
+      // 参考图的视觉标签将服务商显示在椭圆外；仅移除重复的服务商前缀，不截断真实模型名。
+      function modelLabelWithoutProvider(modelLabel, providerLabel) {
+        if (modelLabel.toLowerCase().indexOf(providerLabel.toLowerCase()) !== 0) return modelLabel;
+        return modelLabel.slice(providerLabel.length).replace(/^[\s·._/-]+/, '') || modelLabel;
       }
 
       // 服务商 + 具体模型（两种模式共用；纯显示，不拦截点击——点击冒泡到整条信息栏触发密度切换；hover 展示定价模式）
@@ -382,9 +387,14 @@ module.exports = {
           + (pr && pr.mode === 'peak-valley' ? '定价：峰谷价（高峰 9-12、14-18 点）'
             : (pr && pr.mode === 'flat' ? '定价：固定价' : '定价：未收录，按默认计'))
           + versionLine;
-        if (redundant) {
+        if (pr && pr.acceptsImageInput === true) {
           return React.createElement('span', { key: 'prov', title: provTitle },
-            modelLabelWithCapability(pr, modelLabel));
+            React.createElement('b', null, provLabel),
+            ' · ',
+            modelLabelWithCapability(pr, modelLabelWithoutProvider(modelLabel, provLabel)));
+        }
+        if (redundant) {
+          return React.createElement('span', { key: 'prov', title: provTitle }, modelLabel);
         }
         return React.createElement('span', { key: 'prov', title: provTitle },
           React.createElement('b', null, provLabel),
