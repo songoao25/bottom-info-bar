@@ -116,7 +116,11 @@ function installStyles() {
       /* 有新版本是可处理的信息，不是错误，也不是链接。 */
       .bi-update{ color: var(--bi-state-info); font-weight: 600; }
       /* 视觉能力是模型属性，不是告警：靛蓝紫实色、白字；高度收紧到字形范围内，避免压过同一行文字。 */
-      .bi-vision { display: inline-flex; align-items: center; box-sizing: border-box; height: 16px; margin: 0; padding: 0 6px; border: 1px solid #3730a3; border-radius: 999px; color: #fff; background: #4f46e5; font-size: 12px; font-weight: 600; line-height: 14px; vertical-align: -2px; }
+      /* 服务商、圆点、视觉胶囊在同一 20px flex 行内居中，避免混用文字基线造成上下漂移。 */
+      .bi-model-group { display: inline-flex; align-items: center; height: 20px; vertical-align: top; }
+      .bi-model-provider, .bi-model-dot { display: inline-flex; align-items: center; height: 16px; line-height: 14px; }
+      .bi-model-dot { margin: 0 4px; }
+      .bi-vision { display: inline-flex; align-items: center; box-sizing: border-box; height: 16px; margin: 0; padding: 0 6px; border: 1px solid #3730a3; border-radius: 999px; color: #fff; background: #4f46e5; font-size: 12px; font-weight: 600; line-height: 14px; }
     `;
   document.head.appendChild(style);
   return function () { style.remove(); };
@@ -366,6 +370,10 @@ module.exports = {
         return React.createElement('span', { className: 'bi-vision', title: '支持图像输入。' }, modelLabel, ' 视觉');
       }
 
+      function modelSeparator() {
+        return React.createElement('span', { className: 'bi-model-dot', 'aria-hidden': 'true' }, '·');
+      }
+
       // 参考图的视觉标签将服务商显示在椭圆外；仅移除重复的服务商前缀，不截断真实模型名。
       function modelLabelWithoutProvider(modelLabel, providerLabel) {
         if (modelLabel.toLowerCase().indexOf(providerLabel.toLowerCase()) !== 0) return modelLabel;
@@ -388,9 +396,9 @@ module.exports = {
             : (pr && pr.mode === 'flat' ? '定价：固定价' : '定价：未收录，按默认计'))
           + versionLine;
         if (pr && pr.acceptsImageInput === true) {
-          return React.createElement('span', { key: 'prov', title: provTitle },
-            React.createElement('b', null, provLabel),
-            ' · ',
+          return React.createElement('span', { key: 'prov', className: 'bi-model-group', title: provTitle },
+            React.createElement('b', { className: 'bi-model-provider' }, provLabel),
+            modelSeparator(),
             modelLabelWithCapability(pr, modelLabelWithoutProvider(modelLabel, provLabel)));
         }
         if (redundant) {
@@ -421,9 +429,9 @@ module.exports = {
         const versionLine = updateInfo && typeof updateInfo.current === 'string'
           ? '\n插件版本：' + updateInfo.current : '';
         const title = '订阅服务：' + serviceName + '\n模型：' + modelLabel + versionLine;
-        return React.createElement('span', { key: 'subprov', title: title },
-          React.createElement('b', null, serviceName),
-          ' · ',
+        return React.createElement('span', { key: 'subprov', className: 'bi-model-group', title: title },
+          React.createElement('b', { className: 'bi-model-provider' }, serviceName),
+          modelSeparator(),
           modelLabelWithCapability(pr, modelLabel),
         );
       }

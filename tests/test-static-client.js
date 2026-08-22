@@ -54,9 +54,11 @@ check('报错标签统一延后到整行最右侧', clientSrc.includes('const tr
 
 // 7) 视觉模型：仅 host 明确识别后展示，复刻参考图的实色靛蓝椭圆
 check('视觉标识只接受 host 的显式 true，不通过名称猜测', clientSrc.includes("pr.acceptsImageInput !== true"), true);
+check('服务商、圆点与视觉模型使用同一 flex 中心线，避免基线漂移', clientSrc.includes('.bi-model-group { display: inline-flex; align-items: center; height: 20px; vertical-align: top; }')
+  && clientSrc.includes('.bi-model-provider, .bi-model-dot { display: inline-flex; align-items: center; height: 16px; line-height: 14px; }')
+  && clientSrc.includes("className: 'bi-model-dot'"), true);
 check('视觉模型名采用指定靛蓝紫实色椭圆、白字、深色细边且不超过文字字形边界', clientSrc.includes('.bi-vision {')
   && clientSrc.includes('height: 16px')
-  && clientSrc.includes('vertical-align: -2px')
   && clientSrc.includes('border-radius: 999px')
   && clientSrc.includes('border: 1px solid #3730a3')
   && clientSrc.includes('color: #fff')
