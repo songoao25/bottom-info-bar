@@ -56,12 +56,17 @@ function makeStubCtx(opts) {
   // 目录可变引用：测试可替换 catalogRef.current 模拟目录变更（llm/adapters-updated 后重读）
   const catalogRef = { current: o.catalog || { listModels: async () => [], listProviders: async () => [] } };
   const listeners = {};
-  const calls = { listModels: 0, listProviders: 0 };
+  const calls = { listModels: 0, listProviders: 0, resolveModelInfo: 0 };
   let route = null;
   // llm 桩：透传调用次数 + 委托给 catalogRef.current（缺省 → ctx.get('llm') 返回 undefined，模拟无 llm 服务）
   const llm = o.noLlm ? undefined : {
     async listModels(provider) { calls.listModels++; return catalogRef.current.listModels(provider); },
     async listProviders() { calls.listProviders++; return catalogRef.current.listProviders(); },
+    async resolveModelInfo(provider, model) {
+      calls.resolveModelInfo++;
+      return typeof catalogRef.current.resolveModelInfo === 'function'
+        ? catalogRef.current.resolveModelInfo(provider, model) : undefined;
+    },
   };
   const ctx = {
     get(name) {
@@ -151,6 +156,28 @@ const settle = () => new Promise((r) => setTimeout(r, 40));
     disposer();
   }
 
+  // ================= ①b 模型视觉能力只取 DSH 明确 metadata，不猜模型名 =================
+  {
+    const catalog = {
+      async listModels() { return [{ id: 'vision-by-metadata', name: '任意显示名' }, { id: 'named-vision-only', name: 'Vision 但无能力声明' }]; },
+      async listProviders() { return [{ id: 'deepseek-official', name: 'DeepSeek' }]; },
+      async resolveModelInfo(provider, model) {
+        if (model === 'vision-by-metadata') return { inputModalities: ['text', 'image'] };
+        return { inputModalities: ['text'] };
+      },
+    };
+    const env = makeStubCtx({ catalog: catalog, model: 'vision-by-metadata' });
+    const disposer = plugin.apply(env.ctx);
+    await settle();
+    const imageModel = await invoke(env.getRoute(), '/_dsh/dsh-bottom-info-bar/getPricing', 'GET');
+    check('明确 inputModalities 包含 image → 返回视觉能力', imageModel.payload && imageModel.payload.acceptsImageInput, true);
+    env.selection.model = 'named-vision-only';
+    const textOnlyModel = await invoke(env.getRoute(), '/_dsh/dsh-bottom-info-bar/getPricing', 'GET');
+    check('模型名含 Vision 但 metadata 无 image → 不返回视觉能力', textOnlyModel.payload && textOnlyModel.payload.acceptsImageInput, false);
+    check('视觉能力通过 resolveModelInfo 查询', env.calls.resolveModelInfo >= 2, true);
+    disposer();
+  }
+
   // ================= ② 无 llm 服务 → 回退（模型=原始 id；服务商=静态映射） =================
   {
     const env = makeStubCtx({ noLlm: true });
@@ -237,6 +264,9 @@ const settle = () => new Promise((r) => setTimeout(r, 40));
     clientSrc.includes('modelLabel.toLowerCase().indexOf(provLabel.toLowerCase()) === 0'), true);
   check('client 订阅制模型名同样用 DSH 目录名（modelDisplay）',
     clientSrc.includes("const modelLabel = (pr && pr.modelDisplay) ? pr.modelDisplay"), true);
+  check('client 只在 host 明确返回视觉能力时，复刻“模型名 视觉”靛蓝椭圆并将服务商置于椭圆外',
+    clientSrc.includes("pr.acceptsImageInput !== true") && clientSrc.includes("modelLabel, ' 视觉'")
+      && clientSrc.includes("modelLabelWithoutProvider(modelLabel, provLabel)") && clientSrc.includes("支持图像输入。"), true);
 
   fs.rmSync(tmpRoot, { recursive: true, force: true });
   console.log('\n结果：' + pass + ' PASS / ' + fail + ' FAIL');

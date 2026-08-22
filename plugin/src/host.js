@@ -2,16 +2,23 @@
 // 业务：余额真实 API / 峰谷定价 / llm/stream 记账 / 会话聚合 / 显示名识别 / 订阅额度显示
 // RPC：webServer HTTP 路由（GET/POST /_dsh/dsh-bottom-info-bar/<method>，JSON 进出，同源防护）
 // 依赖：inject ['credentials', 'timer']；可选服务 webServer（ctx.inject 等待）
-// 记账持久化：usageRecords 落盘 ~/.dsh/dsh-bottom-info-bar/usage-records.json（可用环境变量
-// DSH_BOTTOM_INFO_BAR_DATA_DIR 覆盖目录），重启后真实累计花费不丢失。
+// 记账持久化：追加账本 + 可恢复快照落盘 ~/.dsh/dsh-bottom-info-bar/（可用环境变量
+// DSH_BOTTOM_INFO_BAR_DATA_DIR 覆盖目录），重启/中断后真实累计花费不丢失。
 // 订阅额度：本插件只读令牌（~/.codex/auth.json / opencode auth.json）查询额度、仅作显示；
 // 令牌的绑定/续期/写回由独立插件 dsh-chatgpt-subscription 维护，本插件不写回、不续期、不注入凭据。
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, statSync, writeSync } from 'node:fs'
+import { createHash, randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
 const DATA_DIR = process.env.DSH_BOTTOM_INFO_BAR_DATA_DIR || join(homedir(), '.dsh', 'dsh-bottom-info-bar')
 const DATA_FILE = join(DATA_DIR, 'usage-records.json')
+const DATA_BACKUP_FILE = DATA_FILE + '.bak'
+const DATA_TEMP_FILE = DATA_FILE + '.tmp'
+const DATA_TEMP_PREFIX = DATA_TEMP_FILE + '.'
+// The journal is the source of truth.  The JSON file remains a compact,
+// human-readable snapshot for backwards compatibility and quick recovery.
+const USAGE_JOURNAL_FILE = join(DATA_DIR, 'usage-records.journal.jsonl')
 const PACKAGE_FILE = new URL('../package.json', import.meta.url)
 const UPDATE_REGISTRY_URL = 'https://registry.npmjs.org/dsh-bottom-info-bar/latest'
 const UPDATE_CHECK_TIMEOUT_MS = 5000
@@ -256,13 +263,78 @@ function isValidUsageRecord(r) {
     && Number.isFinite(r.output) && r.output >= 0;
 }
 
-function loadUsageRecords() {
+function legacyUsageRecordId(record, index, source) {
+  const stable = JSON.stringify([source, index, record.ts, record.provider, record.model, record.sessionId, record.input, record.cacheRead, record.cacheWrite, record.output])
+  return 'legacy-' + createHash('sha256').update(stable).digest('hex').slice(0, 24)
+}
+
+function normalizeUsageRecord(record, index, source) {
+  const normalized = Object.assign({}, record)
+  if (typeof normalized.id !== 'string' || normalized.id.length === 0) normalized.id = legacyUsageRecordId(normalized, index, source)
+  if (normalized.status !== 'completed' && normalized.status !== 'interrupted') normalized.status = 'completed'
+  if (normalized.pricingStatus !== 'priced' && normalized.pricingStatus !== 'unpriced') {
+    normalized.pricingStatus = Number.isFinite(normalized.cost) && normalized.cost >= 0 ? 'priced' : 'unpriced'
+  }
+  return normalized
+}
+
+function readUsageSnapshot(filePath) {
   try {
-    if (!existsSync(DATA_FILE)) return []
-    const parsed = JSON.parse(readFileSync(DATA_FILE, 'utf8'))
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter(isValidUsageRecord);
-  } catch (err) { /* 文件损坏/不可读 → 从空开始，不影响主流程 */ return [] }
+    if (!existsSync(filePath)) return null
+    const parsed = JSON.parse(readFileSync(filePath, 'utf8'))
+    return Array.isArray(parsed) ? parsed.filter(isValidUsageRecord) : null
+  } catch (err) { return null }
+}
+
+function usageRecordKey(record, index, source) {
+  if (typeof record.id === 'string' && record.id.length > 0) return 'id:' + record.id
+  // Legacy records had no stable id.  Keep their original snapshot position in
+  // the key so upgrading never merges two legitimate, identical requests.
+  return 'legacy:' + source + ':' + index + ':' + record.ts + ':' + record.provider + ':' + record.model + ':' + record.sessionId
+}
+
+function loadUsageRecords() {
+  // Recovery order: current snapshot → last known-good snapshot → interrupted
+  // temporary snapshot.  A bad file must not turn a user's whole bill into 0.
+  const temporarySnapshots = []
+  try {
+    if (existsSync(DATA_DIR)) {
+      readdirSync(DATA_DIR).filter(function (name) { return name.indexOf('usage-records.json.tmp.') === 0; })
+        .map(function (name) { return join(DATA_DIR, name); })
+        .sort(function (a, b) { return statSync(b).mtimeMs - statSync(a).mtimeMs; })
+        .forEach(function (file) { temporarySnapshots.push(file); })
+    }
+  } catch (err) { /* fall back to the legacy fixed temporary snapshot */ }
+  const candidates = [DATA_FILE, DATA_BACKUP_FILE, DATA_TEMP_FILE].concat(temporarySnapshots)
+  let snapshot = []
+  for (let i = 0; i < candidates.length; i++) {
+    const loaded = readUsageSnapshot(candidates[i])
+    if (loaded) { snapshot = loaded; break }
+  }
+  const records = []
+  const seen = new Set()
+  let migratedLegacyRecord = false
+  function add(record, index, source) {
+    if (!isValidUsageRecord(record)) return
+    if (typeof record.id !== 'string' || record.id.length === 0) migratedLegacyRecord = true
+    const normalized = normalizeUsageRecord(record, index, source)
+    const key = usageRecordKey(normalized, index, source)
+    if (seen.has(key)) return
+    seen.add(key)
+    records.push(normalized)
+  }
+  snapshot.forEach(function (record, index) { add(record, index, 'snapshot') })
+  // A torn journal line only loses that one unfinished append; all preceding
+  // valid lines remain usable.  This is deliberately unlike all-or-nothing JSON.
+  try {
+    if (existsSync(USAGE_JOURNAL_FILE)) {
+      readFileSync(USAGE_JOURNAL_FILE, 'utf8').split('\n').forEach(function (line, index) {
+        if (!line.trim()) return
+        try { add(JSON.parse(line), index, 'journal') } catch (err) { /* skip only the corrupt line */ }
+      })
+    }
+  } catch (err) { /* snapshot is still a safe recovery source */ }
+  return { records: records.sort(function (a, b) { return a.ts - b.ts }), migratedLegacyRecord: migratedLegacyRecord }
 }
 
 export default {
@@ -271,9 +343,15 @@ export default {
     // 版本检查只在 host 进程启动时发起一次；客户端后续只读取这个缓存结果。
     const updateInfoPromise = checkLatestVersion()
 
-    // ---------- 定价表（元/美元 · 百万 tokens；DeepSeek 官方 2026-08-17；OpenAI 为 2026 官方价示例） ----------
+    // ---------- 定价表（元/美元 · 百万 tokens；来源与人工复核规则见 docs/PRICING-SOURCES.md） ----------
     const PRICING = {
       'deepseek-v4-flash': {
+        currency: 'CNY', mode: 'peak-valley',
+        peak:   { inputCacheHit: 0.10, inputCacheMiss: 3.0, output: 9.0 },
+        offpeak:{ inputCacheHit: 0.05, inputCacheMiss: 1.5, output: 4.5 },
+      },
+      // DSH 的视觉实验型号是 V4 Flash 变体；与 Flash 共用峰谷价，确保价格标签与用量记账同步。
+      'deepseek-v4-flash-vision-exp': {
         currency: 'CNY', mode: 'peak-valley',
         peak:   { inputCacheHit: 0.10, inputCacheMiss: 3.0, output: 9.0 },
         offpeak:{ inputCacheHit: 0.05, inputCacheMiss: 1.5, output: 4.5 },
@@ -542,8 +620,8 @@ export default {
     }
 
     // RPC：当前订阅额度快照 + 模式判定（非订阅模式直接返回，不发任何订阅请求）
-    async function getSubscriptionSnapshotRpc() {
-      const sel = modelSelection();
+    async function getSubscriptionSnapshotRpc(selection) {
+      const sel = selection || modelSelection();
       const bm = detectBillingMode(sel.provider, config.billingMode);
       const out = { mode: bm.mode, provider: sel.provider, reason: bm.reason, source: null, plan: null, windows: [], fetchedAt: null, error: null };
       if (bm.mode !== 'subscription') return out;
@@ -628,6 +706,21 @@ export default {
       return { provider: provider, model: model, fallback: fallback };
     }
 
+    // Web client may supply the model selection owned by its currently active
+    // session.  `agentDefaultModel` is deliberately process-wide and only a
+    // default for new Agents, so it must never win over a valid session value.
+    // Treat this HTTP input as display/accounting context only: reject malformed
+    // values and fall back to the host default rather than letting bad input
+    // reach any model or credential operation.
+    function selectionFromArgs(args) {
+      const raw = args && typeof args === 'object' ? args.selection : null;
+      if (raw && typeof raw.provider === 'string' && raw.provider.length > 0
+          && typeof raw.model === 'string' && raw.model.length > 0) {
+        return { provider: raw.provider, model: raw.model, fallback: false };
+      }
+      return modelSelection();
+    }
+
     // ---------- 服务商显示名静态映射（M5 起为 providerDisplayFromCache 的回退层） ----------
     const PROVIDER_DISPLAY = {
       deepseek: 'DeepSeek',
@@ -647,13 +740,20 @@ export default {
       groq: 'Groq',
     };
 
-    // ---------- DSH 模型/服务商目录名缓存（M5：与模型切换器完全一致） ----------
-    // llm.listModels(provider) → DSH LLM 目录 { id, name }；llm.listProviders() → { id, name }。
+    // ---------- DSH 模型/服务商目录名与能力缓存（M5：与模型切换器完全一致） ----------
+    // llm.listModels(provider) → DSH LLM 目录 { id, name, inputModalities? }；
+    // llm.resolveModelInfo(provider, model) → 当前模型的完整目录信息。
     // 缓存异步填充：启动即刷 + llm/adapters-updated 事件刷新 + getPricing 首次缺缓存时按需等待；
     // llm 服务缺失/查询失败保留旧缓存（stale 可接受），展示层回退原始 id / 静态映射，绝不崩溃。
     let modelNameCache = {};    // { provider: { modelId: name } }
     let providerNameCache = {}; // { provider: name }
     let modelCatalogRefreshed = {}; // { provider: true } 已尝试刷新（防 getPricing 反复打目录）
+    let modelImageInputCache = {}; // { provider: { modelId: boolean } }；仅 DSH 明确声明 image 才为 true
+    let modelCapabilityRefreshed = {}; // { provider + '\u0000' + model: true } 已尝试读取完整模型能力
+
+    function modelAcceptsImageInput(info) {
+      return !!(info && Array.isArray(info.inputModalities) && info.inputModalities.indexOf('image') !== -1);
+    }
 
     async function refreshModelCatalog(provider) {
       const llm = ctx.get ? ctx.get('llm') : null;
@@ -661,13 +761,18 @@ export default {
       try {
         const models = await llm.listModels(provider);
         const map = {};
+        const imageInputMap = {};
         if (Array.isArray(models)) {
           for (let i = 0; i < models.length; i++) {
             const m = models[i];
-            if (m && typeof m.id === 'string' && m.id.length > 0 && typeof m.name === 'string' && m.name.length > 0) map[m.id] = m.name;
+            if (m && typeof m.id === 'string' && m.id.length > 0) {
+              if (typeof m.name === 'string' && m.name.length > 0) map[m.id] = m.name;
+              imageInputMap[m.id] = modelAcceptsImageInput(m);
+            }
           }
         }
         modelNameCache[provider] = map;
+        modelImageInputCache[provider] = imageInputMap;
       } catch (err) { /* 目录查询失败保留旧缓存，绝不崩溃 */ }
       try {
         const provs = typeof llm.listProviders === 'function' ? await llm.listProviders() : null;
@@ -681,15 +786,36 @@ export default {
       modelCatalogRefreshed[provider] = true;
     }
 
+    // listModels 只提供目录概要时，按当前选中模型读取完整能力；失败或未知时不显示标识，
+    // 避免通过模型名称猜测造成错误标注。每个 provider/model 组合只读取一次，适配器更新后再读。
+    async function refreshModelCapability(provider, model) {
+      const cacheKey = provider + '\u0000' + model;
+      if (!provider || !model || modelCapabilityRefreshed[cacheKey]) return;
+      const llm = ctx.get ? ctx.get('llm') : null;
+      if (!llm || typeof llm.resolveModelInfo !== 'function') {
+        modelCapabilityRefreshed[cacheKey] = true;
+        return;
+      }
+      try {
+        const info = await llm.resolveModelInfo(provider, model);
+        const providerMap = modelImageInputCache[provider] || {};
+        providerMap[model] = modelAcceptsImageInput(info);
+        modelImageInputCache[provider] = providerMap;
+      } catch (err) { /* 能力查询失败视为未知，不影响信息栏其余内容 */ }
+      modelCapabilityRefreshed[cacheKey] = true;
+    }
+
     // 刷新当前激活 provider 的目录名缓存（启动 / llm/adapters-updated / 切模型后按需调用）
     function refreshActiveModelCatalog() {
       const sel = modelSelection();
-      return refreshModelCatalog(sel.provider);
+      return refreshModelCatalog(sel.provider).then(function () {
+        return refreshModelCapability(sel.provider, sel.model);
+      });
     }
 
     // ---------- 定价计算 ----------
-    function computePricing(nowMs) {
-      const sel = modelSelection();
+    function computePricing(nowMs, selection) {
+      const sel = selection || modelSelection();
       const entry = PRICING[sel.model];
       const period = entry && entry.mode === 'peak-valley' ? currentPeriod(nowMs) : 'flat';
       let prices = null;
@@ -702,6 +828,7 @@ export default {
         provider: sel.provider,
         providerDisplay: providerDisplayFromCache(sel.provider, providerNameCache, PROVIDER_DISPLAY),
         modelDisplay: modelDisplayFromCache(sel.model, sel.provider, modelNameCache),
+        acceptsImageInput: !!(modelImageInputCache[sel.provider] && modelImageInputCache[sel.provider][sel.model]),
         fallback: sel.fallback || !entry,
         mode: entry ? entry.mode : 'unknown',
         period: period,
@@ -753,20 +880,62 @@ export default {
     }
 
     // ---------- 用量记账（llm/stream waterfall；落盘持久化，重启不丢失） ----------
-    let usageRecords = loadUsageRecords(); // { ts, model, provider, sessionId, purpose, input, cacheRead, cacheWrite, output }
+    const loadedUsageRecords = loadUsageRecords();
+    let usageRecords = loadedUsageRecords.records; // { id, ts, model, provider, sessionId, input, cacheRead, cacheWrite, output, currency, cost, pricingStatus, pricingVersion, status }
     let saveDisposer = null;
-    let dirty = false;
+    let dirty = loadedUsageRecords.migratedLegacyRecord;
+    let ledgerError = null;
+
+    function writeAndSync(filePath, content, flags) {
+      let fd = null;
+      try {
+        fd = openSync(filePath, flags, 0o600);
+        const bytes = Buffer.from(content);
+        let offset = 0;
+        while (offset < bytes.length) {
+          const written = writeSync(fd, bytes, offset, bytes.length - offset);
+          if (!written) throw new Error('账单文件写入未完成');
+          offset += written;
+        }
+        fsyncSync(fd);
+      } finally {
+        if (fd !== null) closeSync(fd);
+      }
+    }
+
+    function appendUsageJournal(record) {
+      try {
+        mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+        // `a` opens with O_APPEND.  A record is admitted to the visible total
+        // only after the operating system confirms this line has been flushed.
+        writeAndSync(USAGE_JOURNAL_FILE, JSON.stringify(record) + '\n', 'a');
+        return null;
+      } catch (err) {
+        return { kind: 'journal-failed', message: String((err && err.message) || err), at: Date.now() };
+      }
+    }
 
     function flushSave() {
       if (saveDisposer) { saveDisposer(); saveDisposer = null; }
       try {
         mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
-        // 原子写：先写临时文件再 rename，避免进程崩溃/写一半留下损坏 JSON 导致历史归零
-        const tmp = DATA_FILE + '.tmp';
-        writeFileSync(tmp, JSON.stringify(usageRecords), { mode: 0o600 });
+        // The append-only journal has already made each record durable.  This
+        // snapshot is a recovery/cache layer, so an overlapping older process
+        // can no longer erase newer records by writing stale memory here.
+        const tmp = DATA_TEMP_PREFIX + process.pid + '.' + randomUUID();
+        writeAndSync(tmp, JSON.stringify(usageRecords), 'w');
+        if (existsSync(DATA_FILE)) {
+          try { renameSync(DATA_FILE, DATA_BACKUP_FILE); } catch (err) { /* replacement below is still atomic */ }
+        }
         renameSync(tmp, DATA_FILE);
         dirty = false; // 写盘成功后才清除脏标记：失败时保留，卸载冲刷可重试
-      } catch (err) { /* 落盘失败不影响主流程；保留 dirty，下次记账/卸载时重试 */ console.warn('[dsh-bottom-info-bar] 记账落盘失败', String((err && err.message) || err)); }
+        if (ledgerError && ledgerError.kind === 'snapshot-stale') ledgerError = null;
+      } catch (err) {
+        // The journal remains authoritative, but tell the user that the
+        // directly readable snapshot has not caught up yet.
+        ledgerError = { kind: 'snapshot-stale', message: String((err && err.message) || err), at: Date.now() };
+        console.warn('[dsh-bottom-info-bar] 记账快照落盘失败', ledgerError.message);
+      }
     }
 
     // 防抖落盘：记账后 4s 内合并写入；插件卸载时立即冲刷
@@ -779,11 +948,23 @@ export default {
       }, 4000);
     }
 
-    function recordUsage(options, usage) {
+    // Persist the one-time legacy-id migration even if the user makes no new
+    // request before restarting again.
+    if (dirty) scheduleSave();
+
+    function hasUsageTokens(usage) {
+      if (!usage || typeof usage !== 'object') return false;
+      return ['uncachedInputTokens', 'inputTokens', 'cacheReadTokens', 'cacheWriteTokens', 'outputTokens'].some(function (key) {
+        return usage[key] != null;
+      });
+    }
+
+    function recordUsage(options, usage, status) {
       const u = usage || {};
       // 数值清洗：uncachedInputTokens 的 != null 对 NaN 恒真、|| 0 挡不住 Infinity/负值——
       // 统一 sanitizeTokens（NaN/Infinity/负数/非数字 → 0），坏数值不进内存汇总也不落盘
       const rec = {
+        id: randomUUID(),
         ts: Date.now(),
         model: options.model || '',
         provider: options.provider || '',
@@ -793,10 +974,30 @@ export default {
         cacheRead: sanitizeTokens(u.cacheReadTokens),
         cacheWrite: sanitizeTokens(u.cacheWriteTokens),
         output: sanitizeTokens(u.outputTokens),
+        status: status === 'interrupted' ? 'interrupted' : 'completed',
       };
+      // Freeze the actual price at usage time.  Historical totals must not
+      // change merely because the plugin's reference price table is updated.
+      const billed = costOf(rec, false);
+      if (billed != null) {
+        rec.currency = modelCurrency(rec.model);
+        rec.cost = billed;
+        rec.pricingStatus = 'priced';
+        rec.pricingVersion = 'builtin-' + packageVersion();
+      } else {
+        rec.pricingStatus = 'unpriced';
+        rec.pricingVersion = null;
+      }
+      const writeError = appendUsageJournal(rec);
+      if (writeError) {
+        ledgerError = writeError;
+        console.warn('[dsh-bottom-info-bar] 记账日志追加失败', writeError.message);
+        return false;
+      }
       usageRecords.push(rec);
-      if (usageRecords.length > 3000) usageRecords.splice(0, usageRecords.length - 3000);
+      ledgerError = null;
       scheduleSave();
+      return true;
     }
 
     ctx.on('llm/stream', async function* (options, next) {
@@ -807,26 +1008,47 @@ export default {
         console.warn('[dsh-bottom-info-bar] llm/stream 获取失败，本次不记账', String((err && err.message) || err));
         throw err; // 保持错误向上传播：不把上游失败消化成空流（仅跳过记账逻辑）
       }
+      let latestUsage = null;
+      let sawFinish = false;
+      let committed = false;
+      function commitUsage(status) {
+        if (committed || !hasUsageTokens(latestUsage)) return;
+        committed = true;
+        try { recordUsage(options, latestUsage, status); } catch (err) {
+          ledgerError = { kind: 'journal-failed', message: String((err && err.message) || err), at: Date.now() };
+          console.warn('[dsh-bottom-info-bar] 本次账单未保存', ledgerError.message);
+        }
+      }
       try {
         for await (const chunk of stream) {
           if (chunk && chunk.type === 'usage' && chunk.usage) {
-            try { recordUsage(options, chunk.usage); } catch (err) { /* 记账失败不影响请求 */ }
+            // DSH usage chunks are treated as snapshots.  Keep the last one
+            // and commit it once when this model response finishes.
+            latestUsage = Object.assign({}, chunk.usage);
           }
+          if (chunk && chunk.type === 'finish') sawFinish = true;
           yield chunk;
         }
       } catch (err) {
+        commitUsage('interrupted');
         throw err;
+      } finally {
+        commitUsage(sawFinish ? 'completed' : 'interrupted');
       }
     });
 
     // M5：适配器/目录变更（模型增删、provider 改名）→ 重建目录名缓存，信息栏模型名与切换器保持一致
     ctx.on('llm/adapters-updated', function () {
       modelCatalogRefreshed = {};
+      modelCapabilityRefreshed = {};
       refreshActiveModelCatalog();
     });
 
     // ---------- 花费计算 ----------
     function costOf(record, forceOffpeak) {
+      // v2 ledger records carry the charge as observed.  Use it for normal
+      // reporting; only the "all-offpeak" forecast intentionally recalculates.
+      if (!forceOffpeak && Number.isFinite(record.cost) && record.cost >= 0) return record.cost;
       const entry = PRICING[record.model];
       if (!entry) return null;
       let p;
@@ -865,7 +1087,7 @@ export default {
         s.output += r.output;
         const c = costOf(r, false);
         if (c != null) {
-          const cur = modelCurrency(r.model);
+          const cur = recordCurrency(r);
           s.costs[cur] = (s.costs[cur] || 0) + c;
         }
         if (r.ts > s.lastTs) s.lastTs = r.ts;
@@ -915,19 +1137,27 @@ export default {
       };
     }
 
-    function activeCurrency() {
+    function activeCurrency(selection) {
       // 币种跟随活跃模型服务商（与余额账户同源）：deepseek → CNY、openai → USD（估算快照）；
       // 余额快照未就绪时回退活跃模型定价币种，避免启动初期/无快照时显示错币种
-      const key = balanceProviderKey(modelSelection().provider || config.activeProvider);
+      const sel = selection || modelSelection();
+      const key = balanceProviderKey(sel.provider || config.activeProvider);
       const snap = balances[key];
       if (snap && snap.data && snap.data.currency) return snap.data.currency;
-      return modelCurrency(modelSelection().model);
+      return modelCurrency(sel.model);
     }
 
-    function spendSummary(nowMs) {
-      const snap = balances[balanceProviderKey(modelSelection().provider || config.activeProvider)] || { data: null };
+    function recordCurrency(record) {
+      return record && typeof record.currency === 'string' && record.currency.length > 0
+        ? record.currency
+        : modelCurrency(record && record.model);
+    }
+
+    function spendSummary(nowMs, selection) {
+      const sel = selection || modelSelection();
+      const snap = balances[balanceProviderKey(sel.provider || config.activeProvider)] || { data: null };
       const balance = snap.data ? snap.data.total : null;
-      const cur = activeCurrency();
+      const cur = activeCurrency(sel);
       const cutoff = nowMs - SPEND_DAYS * 86400 * 1000;
       let total = 0;
       let offpeakTotal = 0;
@@ -935,7 +1165,7 @@ export default {
       for (let i = 0; i < usageRecords.length; i++) {
         const r = usageRecords[i];
         if (r.ts < cutoff) continue;
-        if (modelCurrency(r.model) !== cur) continue; // 只聚合活动币种，避免跨币种相加
+        if (recordCurrency(r) !== cur) continue; // 只聚合活动币种，避免跨币种相加
         const c = costOf(r, false);
         if (c == null) continue;
         total += c;
@@ -961,14 +1191,14 @@ export default {
     }
 
     // ---------- 今日花费（北京时间当日累计，仅活动币种） ----------
-    function todaySpend(nowMs) {
+    function todaySpend(nowMs, selection) {
       const key = beijingDayKey(nowMs);
-      const cur = activeCurrency();
+      const cur = activeCurrency(selection);
       let total = 0;
       for (let i = 0; i < usageRecords.length; i++) {
         const r = usageRecords[i];
         if (beijingDayKey(r.ts) !== key) continue;
-        if (modelCurrency(r.model) !== cur) continue;
+        if (recordCurrency(r) !== cur) continue;
         const c = costOf(r, false);
         if (c != null) total += c;
       }
@@ -976,29 +1206,29 @@ export default {
     }
 
     // ---------- 本月/近30天花费（仅活动币种） ----------
-    function monthSpend(nowMs) {
+    function monthSpend(nowMs, selection) {
       const d = new Date(nowMs + 8 * 3600 * 1000);
       const key = d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0');
-      const cur = activeCurrency();
+      const cur = activeCurrency(selection);
       let total = 0;
       for (let i = 0; i < usageRecords.length; i++) {
         const r = usageRecords[i];
         const rd = new Date(r.ts + 8 * 3600 * 1000);
         if (rd.getUTCFullYear() + '-' + String(rd.getUTCMonth() + 1).padStart(2, '0') !== key) continue;
-        if (modelCurrency(r.model) !== cur) continue;
+        if (recordCurrency(r) !== cur) continue;
         const c = costOf(r, false);
         if (c != null) total += c;
       }
       return Math.round(total * 1000) / 1000;
     }
-    function last30dSpend(nowMs) {
+    function last30dSpend(nowMs, selection) {
       const cutoff = nowMs - 30 * 86400 * 1000;
-      const cur = activeCurrency();
+      const cur = activeCurrency(selection);
       let total = 0;
       for (let i = 0; i < usageRecords.length; i++) {
         const r = usageRecords[i];
         if (r.ts < cutoff) continue;
-        if (modelCurrency(r.model) !== cur) continue;
+        if (recordCurrency(r) !== cur) continue;
         const c = costOf(r, false);
         if (c != null) total += c;
       }
@@ -1082,12 +1312,12 @@ export default {
     }
 
     // ---------- 全部花费 ----------
-    function totalSpend() {
-      const cur = activeCurrency();
+    function totalSpend(selection) {
+      const cur = activeCurrency(selection);
       let total = 0;
       for (let i = 0; i < usageRecords.length; i++) {
         const r = usageRecords[i];
-        if (modelCurrency(r.model) !== cur) continue;
+        if (recordCurrency(r) !== cur) continue;
         const c = costOf(r, false);
         if (c != null) total += c;
       }
@@ -1095,17 +1325,18 @@ export default {
     }
 
     // ---------- 用量汇总 ----------
-    function getUsageSummary(nowMs, sessionId) {
+    function getUsageSummary(nowMs, sessionId, selection) {
       const sessions = sessionTotals();
       return {
         sessions: sessions.length,
         calibration: calibrationFrom(sessions, CALIB_SESSIONS),
         currentSession: currentSessionSummary(sessions, sessionId),
-        spend: spendSummary(nowMs),
-        todaySpend: todaySpend(nowMs),
-        monthSpend: monthSpend(nowMs),
-        last30dSpend: last30dSpend(nowMs),
-        totalSpend: totalSpend(),
+        spend: spendSummary(nowMs, selection),
+        todaySpend: todaySpend(nowMs, selection),
+        monthSpend: monthSpend(nowMs, selection),
+        last30dSpend: last30dSpend(nowMs, selection),
+        totalSpend: totalSpend(selection),
+        persistence: ledgerError ? { state: ledgerError.kind, message: ledgerError.message, at: ledgerError.at } : { state: 'ok', message: null, at: null },
         now: nowMs,
       };
     }
@@ -1180,20 +1411,21 @@ export default {
         const pid = args && typeof args === 'object' && args.provider ? String(args.provider) : '';
         return activeBalanceSummary(pid || undefined, Date.now());
       },
-      getPricing: async function () {
+      getPricing: async function (args) {
         // M5：首次遇到未刷新过的 provider → 等待一次目录名拉取（llm 缺失则直接回退），
         // 保证模型名/服务商名与模型切换器一致；已刷新过则零等待直接读缓存
-        const sel = modelSelection();
+        const sel = selectionFromArgs(args);
         const llm = ctx.get ? ctx.get('llm') : null;
         if (llm && !modelCatalogRefreshed[sel.provider]) await refreshModelCatalog(sel.provider);
-        return computePricing(Date.now());
+        if (llm) await refreshModelCapability(sel.provider, sel.model);
+        return computePricing(Date.now(), sel);
       },
       getEstimate: function () {
         return computeEstimate(Date.now());
       },
       getUsageSummary: function (args) {
         const sessionId = args && typeof args === 'object' ? String(args.sessionId || '') : '';
-        return getUsageSummary(Date.now(), sessionId);
+        return getUsageSummary(Date.now(), sessionId, selectionFromArgs(args));
       },
       getProviders: function () {
         return { providers: providerList(Date.now()), activeProvider: config.activeProvider };
@@ -1213,14 +1445,14 @@ export default {
       getConfig: function () {
         return { displayMode: config.displayMode, infoDensity: config.infoDensity, activeProvider: config.activeProvider, alertThreshold: config.alertThreshold, billingMode: config.billingMode };
       },
-      getBillingMode: function () {
-        // 纯本地计算（零网络开销；客户端 2s 高频轮询专用）：返回 mode+provider+model，
-        // 客户端据此检测模型/服务商切换并立即完整刷新信息栏
-        const sel = modelSelection();
+      getBillingMode: function (args) {
+        // 纯本地计算：优先使用客户端已订阅的当前会话模型，避免把另一个会话的
+        // process-wide default 错显示到这里。
+        const sel = selectionFromArgs(args);
         return Object.assign(detectBillingMode(sel.provider, config.billingMode), { model: sel.model });
       },
-      getSubscriptionSnapshot: function () {
-        return getSubscriptionSnapshotRpc();
+      getSubscriptionSnapshot: function (args) {
+        return getSubscriptionSnapshotRpc(selectionFromArgs(args));
       },
       setDisplayMode: function (args) {
         const mode = args && typeof args === 'object' ? args.mode : null;

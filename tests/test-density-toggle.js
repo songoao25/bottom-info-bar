@@ -56,11 +56,22 @@ check('client: density=null → 简洁（不退化完整）', renderIsFull(null)
 check('client: density="FULL" → 简洁（不退化完整）', renderIsFull('FULL'), false);
 // 6) 源码断言：v20 已用严格判定 + 防抖
 check('client 源码含 toggling 防抖', clientSrc.includes('toggling'), true);
-check('client 源码含严格判定 === \'full\'', clientSrc.includes("props.density === 'full'"), true);
+check('client 源码含严格判定 === \'full\'', clientSrc.includes("displayDensity === 'full'"), true);
 // 精确断言：代码体中不应再有函数调用 onSwitchProvider（排除头注释说明文字）
 const codeBody = clientSrc.split('// ---------- 注册')[1] || clientSrc;
 check('client 代码体无 onSwitchProvider 调用（点击模型名只触发密度切换）', !codeBody.includes('onSwitchProvider('), true);
 check('client 源码 root onClick 绑定 onToggleDensity', clientSrc.includes('onClick: function () { props.onToggleDensity(); }'), true);
+check('client 切换立即更新界面，不等待 RPC 返回', clientSrc.includes('setDensity(next);'), true);
+check('client 持久化失败时回退到前一密度', clientSrc.includes('if (density === next) setDensity(previous);'), true);
+check('client 不在密度切换后重注册 slot', !clientSrc.includes('applyMode();\n      }).catch'), true);
+check('client 使用同一 React 树收合完整统计行', clientSrc.includes('bi-density-extra') && clientSrc.includes("'data-density': displayDensity"), true);
+check('client 尊重系统减少动态效果设置', clientSrc.includes('prefers-reduced-motion: reduce'), true);
+check('client 密度切换可用键盘触发', clientSrc.includes("event.key === 'Enter' || event.key === ' '"), true);
+check('启动配置不会覆盖已发生的用户切换', clientSrc.includes('const initialDensityVersion = densityVersion;')
+  && clientSrc.includes('initialDensityVersion === densityVersion'), true);
+check('密度订阅建立时立即回读当前值，避免首次挂载空窗', clientSrc.includes('setDisplayDensity(density);'), true);
+check('保存期间具有忙碌和禁用语义', clientSrc.includes("'aria-busy': isDensitySaving")
+  && clientSrc.includes("'aria-disabled': isDensitySaving"), true);
 // 7) 无残留的旧宽松判定
 check('client 源码不含 !== \'compact\' 宽松判定', !clientSrc.includes("props.density !== 'compact'"), true);
 

@@ -56,6 +56,9 @@ function costOf(record) {
   return (missInput * p.inputCacheMiss + record.cacheRead * p.inputCacheHit + record.output * p.output) / 1e6;
 }
 
+// 视觉实验型号归入 V4 Flash 峰谷价格：展示与记账都不能再回退为“未收录”。
+check('视觉实验型号收录为 V4 Flash 峰谷价', PRICING['deepseek-v4-flash-vision-exp'], PRICING['deepseek-v4-flash']);
+
 // ---- 构造 3 个会话的模拟 usage 记录（不同会话、不同时间） ----
 const NOW = Date.parse('2026-08-15T04:00:00+08:00'); // 北京时间 8/15 04:00（空闲时段）
 const H = 3600 * 1000;
