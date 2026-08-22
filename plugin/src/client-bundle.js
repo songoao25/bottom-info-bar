@@ -149,6 +149,9 @@ module.exports = {
     let toggling = false; // 防抖：rpc 异步期间禁止重复切换（只允许 full/compact 两态）
     let injectReady = false;
     let occupantDispose = null;
+    // Survives composer remounts, so returning to an already visited session
+    // does not require even one paint of an intermediate state.
+    const sessionModelCache = new Map();
 
     function applyMode() {
       if (occupantDispose) { occupantDispose(); occupantDispose = null; }
@@ -205,6 +208,7 @@ module.exports = {
       // This state is owned by DSH's per-session model selector, not by the
       // process-wide default for newly-created Agents.
       const [sessionModel, setSessionModel] = React.useState(null);
+      const [modelSource, setModelSource] = React.useState('pending');
 
       // 当前会话 ID 多路获取：slotProps 标准 kit → session 快照 → 运行时 sessions 服务
       // （DSH 各版本注入方式不同，任一路可用即拿到真实会话 ID，避免回退到上一会话的账）
@@ -230,10 +234,15 @@ module.exports = {
         let stop = null;
         let active = true;
         setSessionModel(null);
-        if (!sessionId) return function () {};
+        setModelSource('pending');
+        if (!sessionId) { setModelSource('unavailable'); return function () {}; }
         try {
           const directories = ctx.get ? ctx.get('modelDirectories') : null;
-          if (!directories || typeof directories.directoryFor !== 'function') return function () {};
+          if (!directories || typeof directories.directoryFor !== 'function') {
+            setModelSource('unavailable');
+            return function () {};
+          }
+          setModelSource('available');
           const directory = directories.directoryFor(sessionId);
           const publish = function () {
             if (!active || !directory.store || typeof directory.store.getSnapshot !== 'function') return;
@@ -242,16 +251,19 @@ module.exports = {
             if (!selected || typeof selected.provider !== 'string' || typeof selected.model !== 'string') return;
             const group = Array.isArray(snapshot.groups) ? snapshot.groups.find(function (g) { return g && g.id === selected.provider; }) : null;
             const model = group && Array.isArray(group.models) ? group.models.find(function (m) { return m && m.id === selected.model; }) : null;
-            setSessionModel({
+            const value = {
+              sessionId: sessionId,
               provider: selected.provider,
               model: selected.model,
               providerDisplay: group && typeof group.name === 'string' ? group.name : selected.provider,
               modelDisplay: model && typeof model.name === 'string' ? model.name : selected.model,
-            });
+            };
+            sessionModelCache.set(sessionId, value);
+            setSessionModel(value);
           };
           publish();
           if (directory.store && typeof directory.store.subscribe === 'function') stop = directory.store.subscribe(publish);
-        } catch (err) { /* old DSH: retain the RPC fallback */ }
+        } catch (err) { setModelSource('unavailable'); /* old DSH: retain the RPC fallback */ }
         return function () { active = false; if (typeof stop === 'function') stop(); };
       }, [sessionId]);
 
@@ -264,9 +276,11 @@ module.exports = {
       }, []);
 
       const loadVersionRef = React.useRef(0);
+      const cachedSessionModel = sessionId ? sessionModelCache.get(sessionId) : null;
+      const activeSessionModel = sessionModel && sessionModel.sessionId === sessionId ? sessionModel : (cachedSessionModel || null);
       const load = React.useCallback(function (selection) {
         const requestVersion = ++loadVersionRef.current;
-        const activeSelection = selection || sessionModel;
+        const activeSelection = selection || activeSessionModel;
         const selectionArgs = activeSelection ? { selection: { provider: activeSelection.provider, model: activeSelection.model } } : {};
         const signal = abortRef.current ? abortRef.current.signal : null;
         // 逐接口容错：allSettled 等全部 settle（最坏 20s 超时兜底），任一失败只降级该端点，
@@ -282,7 +296,7 @@ module.exports = {
           if ((signal && signal.aborted) || requestVersion !== loadVersionRef.current) return;
           setState(function (s) { return mergeLoadResults(s, results); });
         });
-      }, [resolveSessionId, sessionModel, sessionId]);
+      }, [resolveSessionId, activeSessionModel, sessionId]);
 
       React.useEffect(function () {
         load();
@@ -302,8 +316,8 @@ module.exports = {
       // Model text comes from sessionModel synchronously.  The following load
       // only refreshes secondary data in the background.
       React.useEffect(function () {
-        if (sessionModel) load(sessionModel);
-      }, [load, sessionModel]);
+        if (activeSessionModel) load(activeSessionModel);
+      }, [load, activeSessionModel]);
 
       // 会话统计变化（回复中 turns/steps/tokens 增长，回复完成时停止）→ 防抖后即时刷新花费，
       // 不等下一个 30s 轮询：用户回复一结束即可看到真实金额
@@ -326,14 +340,15 @@ module.exports = {
       // While background RPCs catch up, render the newly activated session's
       // model and suppress details from the prior session rather than showing
       // a convincing but wrong provider/model combination.
-      const visiblePricing = sessionModel && (!state.pricing
-        || state.pricing.provider !== sessionModel.provider || state.pricing.model !== sessionModel.model)
-        ? { provider: sessionModel.provider, model: sessionModel.model, providerDisplay: sessionModel.providerDisplay, modelDisplay: sessionModel.modelDisplay, mode: 'unknown', acceptsImageInput: false }
-        : state.pricing;
-      const visibleBillingMode = sessionModel && (!state.billingMode
-        || state.billingMode.provider !== sessionModel.provider || state.billingMode.model !== sessionModel.model)
-        ? { provider: sessionModel.provider, model: sessionModel.model, mode: ['codex', 'chatgpt', 'opencode-go', 'opencode', 'openai-codex'].indexOf(sessionModel.provider) >= 0 ? 'subscription' : 'balance' }
-        : state.billingMode;
+      const waitForSessionModel = !!sessionId && modelSource !== 'unavailable' && !activeSessionModel;
+      const visiblePricing = activeSessionModel && (!state.pricing
+        || state.pricing.provider !== activeSessionModel.provider || state.pricing.model !== activeSessionModel.model)
+        ? { provider: activeSessionModel.provider, model: activeSessionModel.model, providerDisplay: activeSessionModel.providerDisplay, modelDisplay: activeSessionModel.modelDisplay, mode: 'unknown', acceptsImageInput: false }
+        : (waitForSessionModel ? null : state.pricing);
+      const visibleBillingMode = activeSessionModel && (!state.billingMode
+        || state.billingMode.provider !== activeSessionModel.provider || state.billingMode.model !== activeSessionModel.model)
+        ? { provider: activeSessionModel.provider, model: activeSessionModel.model, mode: ['codex', 'chatgpt', 'opencode-go', 'opencode', 'openai-codex'].indexOf(activeSessionModel.provider) >= 0 ? 'subscription' : 'balance' }
+        : (waitForSessionModel ? null : state.billingMode);
 
       // ---- 与原生一致格式工具 ----
       function formatTokens(n) {
@@ -578,8 +593,6 @@ module.exports = {
           if (errors.sub) {
             // 本次 RPC 失败且无旧数据：显示失败信息而非永久"加载中…"
             trailingErrorGroups.push(React.createElement('span', { className: 'bi-stale', key: 'suberr', title: subscriptionFailureHint({ kind: 'exception', message: String(errors.sub) }) }, '刷新失败'));
-          } else {
-            groups.push(React.createElement('span', { key: 'subload' }, '订阅额度加载中…'));
           }
           return;
         }
@@ -649,12 +662,11 @@ module.exports = {
       const full = props.density === 'full';
       // 模式互斥：订阅制渲染订阅版 row2，余额制渲染 v1.0.0 现状，绝不叠加
       const isSub = !!(visibleBillingMode && visibleBillingMode.mode === 'subscription');
-      // 逐接口容错渲染：loading 仅"首帧且无任何数据"时占位；此后始终渲染（旧数据 + 失败降级标记），
-      // 绝不整栏"加载失败"；rpc 有 20s 超时兜底，也不存在永久"加载中…"
-      const hasAnyData = state.balance !== null || state.pricing !== null || state.usage !== null
-        || state.billingMode !== null || state.sub !== null;
-      if (state.loading && !hasAnyData) {
-        groups.push(React.createElement('span', { key: 'loading' }, '加载中…'));
+      // Never paint a loading placeholder.  Before the active session's model
+      // is available, leave this compact row empty rather than briefly showing
+      // either a generic loading label or data from the previous session.
+      if (waitForSessionModel) {
+        // Intentionally empty: session model publish fills the row immediately.
       } else if (isSub) {
         pushSubscriptionGroups(groups, trailingErrorGroups);
       } else {

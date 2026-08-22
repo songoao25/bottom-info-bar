@@ -215,7 +215,7 @@ check('client 余额制渲染函数独立保留', clientSrc.includes('function p
 check('client 订阅制渲染函数存在', clientSrc.includes('function pushSubscriptionGroups(groups, trailingErrorGroups)'), true);
 check('client 三窗口显示剩余百分比（紧凑标签+加粗数值）', clientSrc.includes("winNodes.push(compactWindowLabel(w.key) + ' ', num(remaining + '%', numberClass))"), true);
 check('client compact 密度精简为最紧窗口', clientSrc.includes('const visible = full ? windows : (displayWindow ? [displayWindow] : []);'), true);
-check('client 无快照时显示加载中（RPC 未返回分支）', subFn.includes("'订阅额度加载中…'"), true);
+check('client 无订阅快照时不显示加载中（RPC 后台补齐）', subFn.includes("'订阅额度加载中…'"), false);
 check('client 窗口渲染由 hasData 门控（空窗口跳过不占位）', subFn.includes('if (hasData) {'), true);
 check('client 订阅失败原因统一通过简短悬停说明', clientSrc.includes('subscriptionFailureHint') && clientSrc.includes('请检查网络后再试'), true);
 check('client 预警阈值常量 = 20（剩余 ≤20% 即告警，与 host 余额 ALERT_THRESHOLD=20 一致）', clientSrc.includes('const LOW_QUOTA_PERCENT = 20'), true);
@@ -253,7 +253,7 @@ check('host getBillingMode 纯本地（路由体无 fetch 调用）', !bmRoute.i
 check('host getBillingMode 返回 model 字段（同 provider 换模型也可检测）', hostSrc.includes('model: sel.model'), true);
 check('client 订阅会话级 modelDirectories（不读全局默认模型）', clientSrc.includes("ctx.get('modelDirectories')") && clientSrc.includes('directories.directoryFor(sessionId)'), true);
 check('client 订阅模型目录 store，切换立即发布', clientSrc.includes('directory.store.subscribe(publish)'), true);
-check('client 模型切换触发后台 load', clientSrc.includes('if (sessionModel) load(sessionModel);'), true);
+check('client 模型切换触发后台 load', clientSrc.includes('if (activeSessionModel) load(activeSessionModel);'), true);
 check('client 不含 2 秒高频 getBillingMode 轮询', !/setInterval\(function \(\) \{\s*rpc\('getBillingMode'\)[\s\S]*?\}, 2000\)/.test(clientSrc), true);
 check('client 用版本号阻止旧会话响应覆盖新会话', clientSrc.includes('requestVersion !== loadVersionRef.current'), true);
 

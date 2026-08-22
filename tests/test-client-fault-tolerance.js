@@ -117,7 +117,8 @@ check('无 reason 的失败兜底为 RPC 失败', bareFail.errors.balance, 'RPC 
 
 // ---- ④ 渲染降级（静态） ----
 check('整栏 fatal 分支已移除（不再整栏"加载失败"）', !clientSrc.includes('state.fatal'), true);
-check('加载中仅首帧且无数据时显示（渲染守卫）', clientSrc.includes('if (state.loading && !hasAnyData) {'), true);
+check('信息栏不渲染任何加载中文案（会话模型未到时留空）', !clientSrc.includes("key: 'loading' }, '加载中…'")
+  && !clientSrc.includes("key: 'subload' }, '订阅额度加载中…'"), true);
 check('全局降级提示统一为刷新失败', clientSrc.includes("'刷新失败'"), true);
 check('余额块 RPC 失败且无旧数据 → 简短失败信息（只降级余额块）', clientSrc.includes("title: '余额获取失败。请检查网络和 API Key。'"), true);
 check('余额块失败保留旧快照提示（host 快照失败 / RPC 失败共用）', clientSrc.includes('bal.error || errors.balance'), true);
