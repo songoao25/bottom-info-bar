@@ -647,13 +647,20 @@ export default {
       groq: 'Groq',
     };
 
-    // ---------- DSH 模型/服务商目录名缓存（M5：与模型切换器完全一致） ----------
-    // llm.listModels(provider) → DSH LLM 目录 { id, name }；llm.listProviders() → { id, name }。
+    // ---------- DSH 模型/服务商目录名与能力缓存（M5：与模型切换器完全一致） ----------
+    // llm.listModels(provider) → DSH LLM 目录 { id, name, inputModalities? }；
+    // llm.resolveModelInfo(provider, model) → 当前模型的完整目录信息。
     // 缓存异步填充：启动即刷 + llm/adapters-updated 事件刷新 + getPricing 首次缺缓存时按需等待；
     // llm 服务缺失/查询失败保留旧缓存（stale 可接受），展示层回退原始 id / 静态映射，绝不崩溃。
     let modelNameCache = {};    // { provider: { modelId: name } }
     let providerNameCache = {}; // { provider: name }
     let modelCatalogRefreshed = {}; // { provider: true } 已尝试刷新（防 getPricing 反复打目录）
+    let modelImageInputCache = {}; // { provider: { modelId: boolean } }；仅 DSH 明确声明 image 才为 true
+    let modelCapabilityRefreshed = {}; // { provider + '\u0000' + model: true } 已尝试读取完整模型能力
+
+    function modelAcceptsImageInput(info) {
+      return !!(info && Array.isArray(info.inputModalities) && info.inputModalities.indexOf('image') !== -1);
+    }
 
     async function refreshModelCatalog(provider) {
       const llm = ctx.get ? ctx.get('llm') : null;
@@ -661,13 +668,18 @@ export default {
       try {
         const models = await llm.listModels(provider);
         const map = {};
+        const imageInputMap = {};
         if (Array.isArray(models)) {
           for (let i = 0; i < models.length; i++) {
             const m = models[i];
-            if (m && typeof m.id === 'string' && m.id.length > 0 && typeof m.name === 'string' && m.name.length > 0) map[m.id] = m.name;
+            if (m && typeof m.id === 'string' && m.id.length > 0) {
+              if (typeof m.name === 'string' && m.name.length > 0) map[m.id] = m.name;
+              imageInputMap[m.id] = modelAcceptsImageInput(m);
+            }
           }
         }
         modelNameCache[provider] = map;
+        modelImageInputCache[provider] = imageInputMap;
       } catch (err) { /* 目录查询失败保留旧缓存，绝不崩溃 */ }
       try {
         const provs = typeof llm.listProviders === 'function' ? await llm.listProviders() : null;
@@ -681,10 +693,31 @@ export default {
       modelCatalogRefreshed[provider] = true;
     }
 
+    // listModels 只提供目录概要时，按当前选中模型读取完整能力；失败或未知时不显示标识，
+    // 避免通过模型名称猜测造成错误标注。每个 provider/model 组合只读取一次，适配器更新后再读。
+    async function refreshModelCapability(provider, model) {
+      const cacheKey = provider + '\u0000' + model;
+      if (!provider || !model || modelCapabilityRefreshed[cacheKey]) return;
+      const llm = ctx.get ? ctx.get('llm') : null;
+      if (!llm || typeof llm.resolveModelInfo !== 'function') {
+        modelCapabilityRefreshed[cacheKey] = true;
+        return;
+      }
+      try {
+        const info = await llm.resolveModelInfo(provider, model);
+        const providerMap = modelImageInputCache[provider] || {};
+        providerMap[model] = modelAcceptsImageInput(info);
+        modelImageInputCache[provider] = providerMap;
+      } catch (err) { /* 能力查询失败视为未知，不影响信息栏其余内容 */ }
+      modelCapabilityRefreshed[cacheKey] = true;
+    }
+
     // 刷新当前激活 provider 的目录名缓存（启动 / llm/adapters-updated / 切模型后按需调用）
     function refreshActiveModelCatalog() {
       const sel = modelSelection();
-      return refreshModelCatalog(sel.provider);
+      return refreshModelCatalog(sel.provider).then(function () {
+        return refreshModelCapability(sel.provider, sel.model);
+      });
     }
 
     // ---------- 定价计算 ----------
@@ -702,6 +735,7 @@ export default {
         provider: sel.provider,
         providerDisplay: providerDisplayFromCache(sel.provider, providerNameCache, PROVIDER_DISPLAY),
         modelDisplay: modelDisplayFromCache(sel.model, sel.provider, modelNameCache),
+        acceptsImageInput: !!(modelImageInputCache[sel.provider] && modelImageInputCache[sel.provider][sel.model]),
         fallback: sel.fallback || !entry,
         mode: entry ? entry.mode : 'unknown',
         period: period,
@@ -822,6 +856,7 @@ export default {
     // M5：适配器/目录变更（模型增删、provider 改名）→ 重建目录名缓存，信息栏模型名与切换器保持一致
     ctx.on('llm/adapters-updated', function () {
       modelCatalogRefreshed = {};
+      modelCapabilityRefreshed = {};
       refreshActiveModelCatalog();
     });
 
@@ -1186,6 +1221,7 @@ export default {
         const sel = modelSelection();
         const llm = ctx.get ? ctx.get('llm') : null;
         if (llm && !modelCatalogRefreshed[sel.provider]) await refreshModelCatalog(sel.provider);
+        if (llm) await refreshModelCapability(sel.provider, sel.model);
         return computePricing(Date.now());
       },
       getEstimate: function () {

@@ -115,6 +115,9 @@ function installStyles() {
       .bi-quota-low { color: var(--bi-state-warning); font-weight: 700; }
       /* 有新版本是可处理的信息，不是错误，也不是链接。 */
       .bi-update{ color: var(--bi-state-info); font-weight: 600; }
+      /* 视觉能力是模型属性，不是告警：低饱和紫色胶囊在深浅色下均保留可读文字。 */
+      .bi-vision { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 999px; color: #57419a; background: rgba(87, 65, 154, 0.12); font-size: 11px; font-weight: 600; line-height: 16px; vertical-align: 1px; }
+      @media (prefers-color-scheme: dark) { .bi-vision { color: #c9b8ff; background: rgba(201, 184, 255, 0.18); } }
     `;
   document.head.appendChild(style);
   return function () { style.remove(); };
@@ -358,6 +361,12 @@ module.exports = {
         return React.createElement('b', { className: 'bi-num' }, String(t));
       }
 
+      // 仅在 DSH 模型目录明确声明 inputModalities 包含 image 时显示；文字与 title 共同传达含义。
+      function visionBadge(pr) {
+        if (!pr || pr.acceptsImageInput !== true) return null;
+        return React.createElement('span', { className: 'bi-vision', title: '支持图像输入。' }, '视觉');
+      }
+
       // 服务商 + 具体模型（两种模式共用；纯显示，不拦截点击——点击冒泡到整条信息栏触发密度切换；hover 展示定价模式）
       // M5：模型名/服务商名均取 DSH 目录名（与模型切换器完全一致）；当服务商名已是模型名前缀
       // （如 "DeepSeek" + "DeepSeek-V4-Flash"）→ 只显示模型名（切换器样式，避免 "DeepSeek · DeepSeek-V4-Flash" 重复）
@@ -375,12 +384,14 @@ module.exports = {
           + versionLine;
         if (redundant) {
           return React.createElement('span', { key: 'prov', title: provTitle },
-            React.createElement('b', null, modelLabel));
+            React.createElement('b', null, modelLabel),
+            visionBadge(pr));
         }
         return React.createElement('span', { key: 'prov', title: provTitle },
           React.createElement('b', null, provLabel),
           ' ',
           modelLabel,
+          visionBadge(pr),
         );
       }
 
@@ -406,6 +417,7 @@ module.exports = {
           React.createElement('b', null, serviceName),
           ' · ',
           modelLabel,
+          visionBadge(pr),
         );
       }
 
