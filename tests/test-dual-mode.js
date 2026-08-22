@@ -97,7 +97,7 @@ check('3600（1h，不在映射）→ null', codexWindowKey(3600), null);
 check('非数字 → null', codexWindowKey(undefined), null);
 check('null → null', codexWindowKey(null), null);
 check('窗口时长表配置正确', JSON.stringify(WINDOW_SECONDS), JSON.stringify({ five_hour: 18000, seven_day: 604800, monthly: 2592000 }));
-check('窗口标签表配置正确', JSON.stringify(WINDOW_LABELS), JSON.stringify({ five_hour: '5小时', seven_day: '周', monthly: '月' }));
+check('窗口标签表配置正确', JSON.stringify(WINDOW_LABELS), JSON.stringify({ five_hour: '5 小时', seven_day: '周', monthly: '月' }));
 
 // ---- 3) Codex 响应解析（真实响应形态：rate_limit 在顶层，无 usage 包装层） ----
 // 完整双窗口（5 小时 + 7 天）
@@ -110,7 +110,7 @@ const codexFull = {
 };
 const parsedFull = parseCodexUsage(codexFull);
 check('Codex 完整双窗口：窗口数 = 2', parsedFull.windows.length, 2);
-check('Codex 完整双窗口：5小时窗口', parsedFull.windows[0], { key: 'five_hour', label: '5小时', usedPercent: 9, resetsAt: 1784000000000 });
+check('Codex 完整双窗口：5 小时窗口', parsedFull.windows[0], { key: 'five_hour', label: '5 小时', usedPercent: 9, resetsAt: 1784000000000 });
 check('Codex 完整双窗口：周窗口', parsedFull.windows[1], { key: 'seven_day', label: '周', usedPercent: 62, resetsAt: 1785000000000 });
 check('Codex plan_type=plus → ChatGPT Plus', parsedFull.plan, 'ChatGPT Plus');
 check('Codex plan_type=pro → ChatGPT Pro', parseCodexUsage({ plan_type: 'pro', rate_limit: {} }).plan, 'ChatGPT Pro');
@@ -213,19 +213,20 @@ const subFn = extractClientFnBody('pushSubscriptionGroups');
 check('client 按会话优先的 billingMode 分支互斥渲染', clientSrc.includes("const isSub = !!(visibleBillingMode && visibleBillingMode.mode === 'subscription')"), true);
 check('client 余额制渲染函数独立保留', clientSrc.includes('function pushBalanceGroups(groups, trailingErrorGroups)'), true);
 check('client 订阅制渲染函数存在', clientSrc.includes('function pushSubscriptionGroups(groups, trailingErrorGroups)'), true);
-check('client 三窗口显示剩余百分比（紧凑标签+加粗数值）', clientSrc.includes("winNodes.push(compactWindowLabel(w.key) + ' ', num(remaining + '%', numberClass))"), true);
+check('client 三窗口显示剩余百分比（统一标签/数据间距 + 加粗数据令牌）', clientSrc.includes("winNodes.push(metric(compactWindowLabel(w.key), remaining + '%', numberClass))"), true);
 check('client compact 密度精简为最紧窗口', clientSrc.includes('const visible = full ? windows : (displayWindow ? [displayWindow] : []);'), true);
 check('client 无订阅快照时不显示加载中（RPC 后台补齐）', subFn.includes("'订阅额度加载中…'"), false);
 check('client 窗口渲染由 hasData 门控（空窗口跳过不占位）', subFn.includes('if (hasData) {'), true);
 check('client 订阅失败原因统一通过简短悬停说明', clientSrc.includes('subscriptionFailureHint') && clientSrc.includes('请检查网络后再试'), true);
 check('client 预警阈值常量 = 20（剩余 ≤20% 即告警，与 host 余额 ALERT_THRESHOLD=20 一致）', clientSrc.includes('const LOW_QUOTA_PERCENT = 20'), true);
 check('client 预警触发条件：剩余 ≤20% 时将对应额度数字标红', clientSrc.includes("remaining <= LOW_QUOTA_PERCENT ? 'bi-quota-low' : ''"), true);
-check('client 距重置倒计时（天级格式 fmtResetCountdown，与显示的窗口一致）', clientSrc.includes("'距重置 ', num(fmtResetCountdown(displayWindow.resetsAt - now))"), true);
+check('client 距重置倒计时使用同一窗口，并通过统一 metric 间距呈现', clientSrc.includes("metric('距重置', fmtResetCountdown(displayWindow.resetsAt - now))"), true);
 check('client fmtResetCountdown 天级格式（1d 21h）', clientSrc.includes("d + 'd ' + h + 'h'"), true);
 check('client hover 明细含重置时刻（formatDateTime）', clientSrc.includes("' · 重置 ' + formatDateTime(w.resetsAt)"), true);
 check('client hover 距重置用天级格式（避免与剩余%混淆）', clientSrc.includes("' · 距重置 ' + fmtResetCountdown(w.resetsAt - now)"), true);
 check('client 订阅制模型组显示订阅服务名（subscriptionProviderGroup）', clientSrc.includes('groups.push(subscriptionProviderGroup())'), true);
 check('client 订阅服务名映射含 OpenCode Go / Codex / ChatGPT', clientSrc.includes("return 'OpenCode Go'") && clientSrc.includes("return 'Codex'") && clientSrc.includes("return 'ChatGPT'"), true);
+check('client 订阅失败提示按实际订阅服务命名，不把 Codex 误称为 ChatGPT', clientSrc.includes('const serviceName = subscriptionServiceName(source);'), true);
 check('client openai-codex → ChatGPT（Codex/ChatGPT 已合并）', clientSrc.includes("if (provider === 'chatgpt' || provider === 'openai-codex') return 'ChatGPT';"), true);
 check('client codex → Codex 保持（映射不变）', clientSrc.includes("if (provider === 'codex') return 'Codex';"), true);
 check('client 剩余 = 100 - 已用（钳制 ≥0）', clientSrc.includes('return Math.max(0, 100 - w.usedPercent);'), true);

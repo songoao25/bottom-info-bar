@@ -55,20 +55,46 @@ check('浅色普通信息与估算说明使用高对比深灰，三级文字仅�
   && clientSrc.includes('--bi-separator: var(--dsw-alias-label-tertiary'), true);
 check('估算余额使用中性说明色', clientSrc.includes("className: 'bi-muted'"), true);
 check('正常订阅额度不使用绿色成功色', clientSrc.includes("remaining <= LOW_QUOTA_PERCENT ? 'bi-quota-low' : ''"), true);
-check('高峰价使用主文字保证小字号可读', clientSrc.includes('.bi-peak    { color: var(--bi-label-primary); font-weight: 700; }'), true);
-check('空闲价为浅色与深色主题分别设置高对比绿色', clientSrc.includes('--bi-state-price-low: #064e3b')
+check('高峰价与低余额共用警示红；状态标签用 600，避免与关键数值争夺层级', clientSrc.includes('.bi-peak    { color: var(--bi-state-alert); font-weight: 600; }'), true);
+check('空闲价为浅色与深色主题分别使用高对比绿色', clientSrc.includes('--bi-state-price-low: #087f5b')
   && clientSrc.includes('--bi-state-price-low: #86efac'), true);
-check('低余额、低额度、刷新失败和阻断错误统一使用高对比鲜红色文字', clientSrc.includes('--bi-state-alert: #991b1b')
+check('低余额、低额度、刷新失败和阻断错误为浅色与深色主题分别使用高对比红色', clientSrc.includes('--bi-state-alert: #d92d20')
   && clientSrc.includes('--bi-state-alert: #ff6961')
-  && clientSrc.includes('.bi-err, .bi-stale { color: var(--bi-state-alert); font-weight: 700; }')
+  && clientSrc.includes('.bi-err, .bi-stale { color: var(--bi-state-alert); font-weight: 600; }')
   && clientSrc.includes('.bi-root b.bi-alert-num, .bi-root b.bi-quota-low { color: var(--bi-state-alert); font-weight: 700; }'), true);
-check('低余额和低额度仅突出对应数字，不追加文字或三角图标', !clientSrc.includes('⚠')
-  && !clientSrc.includes('余额偏低') && !clientSrc.includes('剩余偏低')
-  && clientSrc.includes("alertActive ? 'bi-alert-num' : ''")
-  && clientSrc.includes("num(remaining + '%', numberClass)"), true);
+check('主题颜色以 DSH 实际外观属性切换，并在增强对比度下提供独立色阶', clientSrc.includes('body[data-ds-dark-theme] .bi-root')
+  && clientSrc.includes('@media (prefers-contrast: more)')
+  && clientSrc.includes('--bi-state-price-low: #05603a')
+  && clientSrc.includes('--bi-state-alert: #ff7770'), true);
+check('低余额和低额度使用无框“低”字，状态不只依赖颜色且不制造额外视觉焦点', !clientSrc.includes('⚠')
+  && clientSrc.includes('.bi-low-status { margin-left: 3px; color: var(--bi-state-alert); font-weight: 600; }')
+  && !clientSrc.includes('bi-low-badge')
+  && clientSrc.includes("alertActive ? React.createElement('span', { className: 'bi-low-status' }, '低')")
+  && clientSrc.includes("key: 'low' + i, className: 'bi-low-status' }, '低'"), true);
+check('外部分组为 6px、标签与数据为 4px、模型内部圆点为 4px，层级清晰而不过松', clientSrc.includes('.bi-sep { color: var(--bi-separator); margin: 0 6px; }')
+  && clientSrc.includes('.bi-metric-data { margin-left: 4px; }')
+  && clientSrc.includes('.bi-model-dot { margin: 0 4px; flex: 0 0 auto; }'), true);
+check('数值语法统一：数值与紧随单位/货币符号整体加粗，中文数值与量词留白，标签保持常规字重', clientSrc.includes("metric('余额', symbol + fmt(bal.data.total)")
+  && clientSrc.includes("num(formatTps(statsProj.decodeTokens / (statsProj.decodeMs / 1e3)) + ' tok/s')")
+  && clientSrc.includes("group([num(statsProj.turns + ' 轮'), ' · ', num(statsProj.steps + ' 步')])")
+  && clientSrc.includes("group([metric('输入', formatTokens(billedInput(usageProj)) + ' tok')"), true);
+check('标签与数据通过 metric 组件统一 4px 边界，不依赖普通字符空格', clientSrc.includes("function metric(label, value, extraClass)")
+  && clientSrc.includes("metric('余额', symbol + fmt(bal.data.total)")
+  && clientSrc.includes("metric('本对话', costTxt)")
+  && clientSrc.includes("metric('缓存命中', hit + '%')"), true);
+check('超长模型名不会被根容器裁切：模型详情可整体换行，视觉胶囊保留能力词并省略过长型号', !clientSrc.includes('display: block; overflow: hidden; font-size: 12px')
+  && clientSrc.includes('.bi-row2 > .bi-model-group { white-space: normal; }')
+  && clientSrc.includes('.bi-model-detail { display: inline-flex;')
+  && clientSrc.includes('.bi-vision-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; }')
+  && clientSrc.includes("React.createElement('span', { className: 'bi-vision-kind' }, '视觉')"), true);
+check('整条信息栏的读屏名称引用当前可见信息，切换操作作为独立说明而不覆盖内容', !clientSrc.includes("'aria-label': full ? '切换为简洁模式'")
+  && clientSrc.includes("'aria-labelledby': full && row1 !== null ? 'dsh-bottom-info-bar-native dsh-bottom-info-bar-primary' : 'dsh-bottom-info-bar-primary'")
+  && clientSrc.includes("'aria-describedby': 'dsh-bottom-info-bar-action'")
+  && clientSrc.includes("id: 'dsh-bottom-info-bar-action'")
+  && clientSrc.includes("className: 'bi-sr-only'"), true);
 check('报错标签统一延后到居中信息组的末尾', clientSrc.includes('const trailingErrorGroups = []')
   && clientSrc.includes('trailingErrorGroups.push')
-  && clientSrc.includes("const row2 = React.createElement('div', { className: 'bi-row2' }, ...nodes);"), true);
+  && clientSrc.includes("const row2 = React.createElement('div', { id: 'dsh-bottom-info-bar-primary', className: 'bi-row2' }, ...nodes);"), true);
 check('多个刷新失败合并为一个右侧标签', clientSrc.includes('const seenRefreshFailure = { value: false };')
   && clientSrc.includes("if (text !== '刷新失败') return true;"), true);
 check('状态说明维持原生悬浮提示，不额外引入读屏文案', !clientSrc.includes("'aria-label': title")
@@ -76,10 +102,11 @@ check('状态说明维持原生悬浮提示，不额外引入读屏文案', !cli
 
 // 7) 视觉模型：仅 host 明确识别后展示，复刻参考图的实色靛蓝椭圆
 check('视觉标识只接受 host 的显式 true，不通过名称猜测', clientSrc.includes("pr.acceptsImageInput !== true"), true);
-check('服务商、圆点与视觉模型使用同一 flex 中心线，避免基线漂移', clientSrc.includes('.bi-model-group { display: inline-flex; align-items: center; height: 20px; vertical-align: top; }')
+check('服务商、圆点与视觉模型使用同一 flex 中心线，窄宽度下可作为完整单元换行', clientSrc.includes('.bi-model-group { display: inline-flex; align-items: center; justify-content: center; flex-wrap: wrap; max-width: 100%; min-width: 0; min-height: 20px; vertical-align: top; }')
   && clientSrc.includes('.bi-model-provider, .bi-model-dot { display: inline-flex; align-items: center; height: 16px; line-height: 14px; }')
+  && clientSrc.includes("function modelDetail(pr, modelName)")
   && clientSrc.includes("className: 'bi-model-dot'"), true);
-check('视觉模型名采用高对比靛蓝紫实色椭圆、白字、深色细边且不超过文字字形边界', clientSrc.includes('.bi-vision {')
+check('视觉模型名采用高对比电光蓝实色椭圆、白字、深色细边且不超过文字字形边界', clientSrc.includes('.bi-vision {')
   && clientSrc.includes('height: 16px')
   && clientSrc.includes('border-radius: 999px')
   && clientSrc.includes('border: 1px solid #0044cc')

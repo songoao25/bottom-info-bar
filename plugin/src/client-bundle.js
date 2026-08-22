@@ -3,7 +3,7 @@
 // - ctx.interval / ctx.timeout → window.setInterval / window.setTimeout
 // - styles.insert(css) → document 注入 <style>（installStyles）
 // - React 由 bundle 的 require('react') 提供（seed 模块）
-// 样式策略：① 只把数字加粗（.bi-num 700）② 服务商名加粗 ③ 高峰价琥珀色+加粗、空闲价绿色+加粗
+// 样式策略：① 整个数据令牌加粗（.bi-num 700）② 服务商名加粗 ③ 高峰价与低余额用警示红、空闲价用绿色
 // 显示行为：① 本对话花费始终显示——新会话/对话刚开始（尚无记账）时显示"本对话 ¥0.000"，
 //   hover 仍可查看持久化的 今天/近一月/全部；
 //   ② 完整模式下原生统计行无 steps 门槛，对话刚开始即显示"0 轮 · 0 步"。
@@ -94,9 +94,12 @@ function installStyles() {
   style.dataset.plugin = 'dsh-bottom-info-bar';
   style.dataset.pluginCss = id;
   style.textContent = `
-      .bi-root { --bi-label-primary: var(--dsw-alias-label-primary, #333); --bi-label-supporting: #3f444a; --bi-separator: var(--dsw-alias-label-tertiary, rgba(128,128,128,0.5)); --bi-state-price-low: #064e3b; --bi-state-alert: #991b1b; text-align: center; max-width: var(--dsh-chat-content-width); box-sizing: border-box; width: 100%; padding: 4px calc(var(--dsh-composer-side-clearance) + 16px) 0px; margin: 0 auto; display: block; overflow: hidden; font-size: 12px; line-height: 20px; color: var(--bi-label-supporting); font-variant-numeric: tabular-nums; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+      .bi-root { --bi-label-primary: var(--dsw-alias-label-primary, #333); --bi-label-supporting: #3f444a; --bi-separator: var(--dsw-alias-label-tertiary, rgba(128,128,128,0.5)); --bi-state-price-low: #087f5b; --bi-state-alert: #d92d20; text-align: center; max-width: var(--dsh-chat-content-width); box-sizing: border-box; width: 100%; padding: 4px calc(var(--dsh-composer-side-clearance) + 16px) 0px; margin: 0 auto; display: block; font-size: 12px; line-height: 20px; color: var(--bi-label-supporting); font-variant-numeric: tabular-nums; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
       .bi-root[data-density-saving="true"] { cursor: progress; }
-      @media (prefers-color-scheme: dark) { .bi-root { --bi-label-supporting: var(--dsw-alias-label-secondary, #cfd3d6); --bi-state-price-low: #86efac; --bi-state-alert: #ff6961; } }
+      /* 以 DSH 实际外观属性切换，避免用户在 DSH 内手动选择外观时与系统偏好失配。 */
+      body[data-ds-dark-theme] .bi-root { --bi-label-supporting: var(--dsw-alias-label-secondary, #cfd3d6); --bi-state-price-low: #86efac; --bi-state-alert: #ff6961; }
+      /* 系统要求增强对比度时，浅色使用更深的同语义色；深色仅提高尚未达到 7:1 的警示红。 */
+      @media (prefers-contrast: more) { body:not([data-ds-dark-theme]) .bi-root { --bi-state-price-low: #05603a; --bi-state-alert: #ad1717; } body[data-ds-dark-theme] .bi-root { --bi-state-alert: #ff7770; } }
       .bi-native-row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; width: 100%; }
       /* 密度切换只收合完整模式独有的原生统计行：160ms 足以表达层级变化，又不会拖慢连续操作。 */
       .bi-density-extra { display: grid; grid-template-rows: 1fr; opacity: 1; transform: translateY(0); transition: grid-template-rows 160ms cubic-bezier(0.2, 0, 0, 1), opacity 120ms linear, transform 160ms cubic-bezier(0.2, 0, 0, 1); }
@@ -106,27 +109,41 @@ function installStyles() {
       /* 整条信息栏始终作为一个居中的内容组；不会超过上方对话框的内容宽度。 */
       .bi-row2 { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; width: 100%; }
       .bi-native-row > span, .bi-row2 > span { white-space: nowrap; }
-      .bi-sep { color: var(--bi-separator); margin: 0 8px; }
+      /* 只有模型组可在窄宽度折行；服务商与模型详情仍成组，不会让圆点落在行尾。 */
+      .bi-row2 > .bi-model-group { white-space: normal; }
+      /* 组间 6px、模型内部圆点 4px：保留分组层级，同时避免 12px 信息栏被过大留白拉散。 */
+      .bi-sep { color: var(--bi-separator); margin: 0 6px; }
       /* 服务商名等一般强调：加粗 600 */
       .bi-root b { color: var(--bi-label-primary); font-weight: 600; }
       /* 数字：加粗 700（余额/倒计时/本对话花费/原生统计数字） */
       .bi-root b.bi-num { font-weight: 700; }
-      /* 高峰价用主文字保证小字号可读；空闲价以绿色辅助“更优惠”的文字含义。 */
-      .bi-peak    { color: var(--bi-label-primary); font-weight: 700; }
-      .bi-offpeak { color: var(--bi-state-price-low); font-weight: 700; }
-      .bi-err, .bi-stale { color: var(--bi-state-alert); font-weight: 700; }
+      /* 标签与数据不用字符空格拼接：统一由 4px 布局间距控制，避免中英文/数字字宽造成忽松忽紧。 */
+      .bi-metric { display: inline-flex; align-items: baseline; white-space: nowrap; }
+      .bi-metric-data { margin-left: 4px; }
+      /* 状态标签用 600；核心数值才用 700，避免颜色、字重双重过度强调。 */
+      .bi-peak    { color: var(--bi-state-alert); font-weight: 600; }
+      .bi-offpeak { color: var(--bi-state-price-low); font-weight: 600; }
+      .bi-err, .bi-stale { color: var(--bi-state-alert); font-weight: 600; }
       .bi-muted{ color: var(--bi-label-supporting); }
+      /* 低余额/低额度是数值的状态修饰，而非独立组件：无框“低”字避免制造第二个视觉焦点。 */
+      .bi-low-status { margin-left: 3px; color: var(--bi-state-alert); font-weight: 600; }
       .bi-root b.bi-alert-num, .bi-root b.bi-quota-low { color: var(--bi-state-alert); font-weight: 700; }
       /* 新版本需要用户处理，与其他提醒使用统一鲜红色文字，不伪装成链接。 */
       .bi-update{ color: var(--bi-state-alert); font-weight: 600; }
-      /* 视觉能力是模型属性，不是告警：靛蓝紫实色、白字；高度收紧到字形范围内，避免压过同一行文字。 */
+      /* 视觉能力是模型属性，不是告警：电光蓝实色、白字；高度收紧到字形范围内，避免压过同一行文字。 */
       /* 服务商、圆点、视觉胶囊在同一 20px flex 行内居中，避免混用文字基线造成上下漂移。 */
-      .bi-model-group { display: inline-flex; align-items: center; height: 20px; vertical-align: top; }
+      .bi-model-group { display: inline-flex; align-items: center; justify-content: center; flex-wrap: wrap; max-width: 100%; min-width: 0; min-height: 20px; vertical-align: top; }
       .bi-model-provider, .bi-model-dot { display: inline-flex; align-items: center; height: 16px; line-height: 14px; }
-      .bi-model-dot { margin: 0 4px; }
-      .bi-vision { display: inline-flex; align-items: center; box-sizing: border-box; height: 16px; margin: 0; padding: 0 6px; border: 1px solid #0044cc; border-radius: 999px; color: #fff; background: #0057ff; font-size: 12px; font-weight: 600; line-height: 14px; }
+      .bi-model-detail { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; }
+      .bi-model-dot { margin: 0 4px; flex: 0 0 auto; }
+      .bi-model-name { min-width: 0; overflow-wrap: anywhere; }
+      .bi-vision { display: inline-flex; align-items: center; box-sizing: border-box; min-width: 0; max-width: 100%; height: 16px; margin: 0; padding: 0 6px; border: 1px solid #0044cc; border-radius: 999px; color: #fff; background: #0057ff; font-size: 12px; font-weight: 600; line-height: 14px; white-space: nowrap; }
+      .bi-vision-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+      .bi-vision-kind { flex: 0 0 auto; margin-left: 4px; }
       /* 会话目录未给出能力时，不先把模型错误画成文本模型；保留宽度，等待本地能力结果。 */
       .bi-model-capability-pending { visibility: hidden; }
+      /* 读屏说明不参与视觉排版。 */
+      .bi-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
     `;
   document.head.appendChild(style);
   return function () { style.remove(); };
@@ -460,60 +477,60 @@ module.exports = {
         return React.createElement('b', { className: 'bi-num' + (extraClass ? ' ' + extraClass : '') }, String(t));
       }
 
+      // 统一数值语法：标签保持常规，数值与紧随的单位/货币符号作为一个加粗的数据令牌。
+      function metric(label, value, extraClass) {
+        return React.createElement('span', { className: 'bi-metric', 'data-metric-text': label + ' ' + value },
+          React.createElement('span', { className: 'bi-metric-label' }, label),
+          React.createElement('span', { className: 'bi-metric-data' }, num(value, extraClass)));
+      }
+
       // 仅在 DSH 模型目录明确声明 inputModalities 包含 image 时，将“完整模型名 视觉”合并为一个椭圆。
       function modelLabelWithCapability(pr, modelLabel) {
         if (pr && pr.acceptsImageInput === null) {
           return React.createElement('span', { className: 'bi-model-capability-pending', 'aria-hidden': 'true' }, modelLabel);
         }
-        if (!pr || pr.acceptsImageInput !== true) return modelLabel;
-        return React.createElement('span', { className: 'bi-vision', title: '支持图像输入。' }, modelLabel, ' 视觉');
+        if (!pr || pr.acceptsImageInput !== true) return React.createElement('span', { className: 'bi-model-name' }, modelLabel);
+        return React.createElement('span', { className: 'bi-vision', title: '支持图像输入。' },
+          React.createElement('span', { className: 'bi-vision-model' }, modelLabel),
+          React.createElement('span', { className: 'bi-vision-kind' }, '视觉'));
       }
 
       function modelSeparator() {
         return React.createElement('span', { className: 'bi-model-dot', 'aria-hidden': 'true' }, '·');
       }
 
+      function modelDetail(pr, modelName) {
+        return React.createElement('span', { className: 'bi-model-detail' },
+          modelSeparator(), modelLabelWithCapability(pr, modelName));
+      }
+
       // 参考图的视觉标签将服务商显示在椭圆外；仅移除重复的服务商前缀，不截断真实模型名。
       function modelLabelWithoutProvider(modelLabel, providerLabel) {
         if (modelLabel.toLowerCase().indexOf(providerLabel.toLowerCase()) !== 0) return modelLabel;
-        return modelLabel.slice(providerLabel.length).replace(/^[\s·._/-]+/, '') || modelLabel;
+        const suffix = modelLabel.slice(providerLabel.length);
+        // 只有目录以分隔符明确写成“服务商 + 模型”时才去重；例如 OpenAICode 不是 OpenAI 的重复前缀。
+        if (!/^[\s·._/-]+/.test(suffix)) return modelLabel;
+        return suffix.replace(/^[\s·._/-]+/, '') || modelLabel;
       }
 
       // 服务商 + 具体模型（两种模式共用；纯显示，不拦截点击——点击冒泡到整条信息栏触发密度切换；hover 展示定价模式）
-      // M5：模型名/服务商名均取 DSH 目录名（与模型切换器完全一致）；当服务商名已是模型名前缀
-      // （如 "DeepSeek" + "DeepSeek-V4-Flash"）→ 只显示模型名（切换器样式，避免 "DeepSeek · DeepSeek-V4-Flash" 重复）
+      // 模型目录名可能重复服务商前缀（如 DeepSeek V4 Flash）；始终拆分为“DeepSeek · V4 Flash”，
+      // 既保留服务商信息，也不让模型名重复前缀。
       function providerGroup() {
         const pr = visiblePricing;
         const provLabel = (pr && pr.providerDisplay) ? pr.providerDisplay : '未知';
         const modelLabel = (pr && pr.modelDisplay) ? pr.modelDisplay
           : (pr && pr.model ? pr.model : '未知模型');
-        const redundant = provLabel.length > 1 && modelLabel.toLowerCase().indexOf(provLabel.toLowerCase()) === 0;
+        const modelName = modelLabelWithoutProvider(modelLabel, provLabel);
         const versionLine = updateInfo && typeof updateInfo.current === 'string'
           ? '\n插件版本：' + updateInfo.current : '';
         const provTitle = '服务商：' + provLabel + ' ' + modelLabel + '\n'
           + (pr && pr.mode === 'peak-valley' ? '定价：峰谷价（高峰 9-12、14-18 点）'
             : (pr && pr.mode === 'flat' ? '定价：固定价' : '定价：未收录，按默认计'))
           + versionLine;
-        if (pr && pr.acceptsImageInput === true) {
-          return React.createElement('span', { key: 'prov', className: 'bi-model-group', title: provTitle },
-            React.createElement('b', { className: 'bi-model-provider' }, provLabel),
-            modelSeparator(),
-            modelLabelWithCapability(pr, modelLabelWithoutProvider(modelLabel, provLabel)));
-        }
-        if (pr && pr.acceptsImageInput === null) {
-          return React.createElement('span', { key: 'prov', className: 'bi-model-group', title: provTitle },
-            React.createElement('b', { className: 'bi-model-provider' }, provLabel),
-            modelSeparator(),
-            modelLabelWithCapability(pr, modelLabelWithoutProvider(modelLabel, provLabel)));
-        }
-        if (redundant) {
-          return React.createElement('span', { key: 'prov', title: provTitle }, modelLabel);
-        }
-        return React.createElement('span', { key: 'prov', title: provTitle },
-          React.createElement('b', null, provLabel),
-          ' ',
-          modelLabelWithCapability(pr, modelLabel),
-        );
+        return React.createElement('span', { key: 'prov', className: 'bi-model-group', title: provTitle },
+          React.createElement('b', { className: 'bi-model-provider' }, provLabel),
+          modelDetail(pr, modelName));
       }
 
       // 订阅服务名（订阅制模式下"服务商"指订阅服务本身，不是模型厂商）
@@ -531,13 +548,13 @@ module.exports = {
         const serviceName = subscriptionServiceName(visibleBillingMode && visibleBillingMode.provider);
         const modelLabel = (pr && pr.modelDisplay) ? pr.modelDisplay
           : (pr && pr.model ? pr.model : '未知模型');
+        const modelName = modelLabelWithoutProvider(modelLabel, serviceName);
         const versionLine = updateInfo && typeof updateInfo.current === 'string'
           ? '\n插件版本：' + updateInfo.current : '';
         const title = '订阅服务：' + serviceName + '\n模型：' + modelLabel + versionLine;
         return React.createElement('span', { key: 'subprov', className: 'bi-model-group', title: title },
           React.createElement('b', { className: 'bi-model-provider' }, serviceName),
-          modelSeparator(),
-          modelLabelWithCapability(pr, modelLabel),
+          modelDetail(pr, modelName),
         );
       }
 
@@ -558,8 +575,8 @@ module.exports = {
             ? '估算余额：' + symbol + fmt(bal.data.total)
             : '余额：' + symbol + fmt(bal.data.total);
           groups.push(React.createElement('span', { key: 'bal', title: balTitle },
-            '余额 ',
-            num(symbol + fmt(bal.data.total), alertActive ? 'bi-alert-num' : ''),
+            metric('余额', symbol + fmt(bal.data.total), alertActive ? 'bi-alert-num' : ''),
+            alertActive ? React.createElement('span', { className: 'bi-low-status' }, '低') : null,
             bal.estimate ? React.createElement('span', { className: 'bi-muted' }, '（估算）') : null,
           ));
           // host 快照失败（bal.error）或本次 RPC 失败（errors.balance）→ 均保留旧数据 + 降级标记
@@ -590,8 +607,7 @@ module.exports = {
           const peakNow = pr.period === 'peak';
           const countdownTitle = '北京时间 ' + pr.nextSwitch.atLabel + ' 切换为' + (peakNow ? '空闲价' : '高峰价') + '。';
           groups.push(React.createElement('span', { key: 'countdown', title: countdownTitle },
-            '距' + (peakNow ? '空闲' : '高峰') + ' ',
-            num(fmtCountdown(pr.nextSwitch.at - now))));
+            metric('距' + (peakNow ? '空闲' : '高峰'), fmtCountdown(pr.nextSwitch.at - now))));
         }
 
         // 本对话花费（只显示钱；hover 浮窗显示 今天 / 近一月 / 全部；金额数字加粗）
@@ -610,8 +626,7 @@ module.exports = {
           const total = usg.totalSpend != null ? '全部 ' + symbol + fmt(usg.totalSpend, 3) : '';
           const detail = [today, month, total].filter(function (s) { return s.length > 0; }).join(' · ');
           groups.push(React.createElement('span', { key: 'convo', title: detail || '本对话花费' },
-            '本对话 ',
-            num(costTxt)));
+            metric('本对话', costTxt)));
         } else if (errors.usage) {
           // 本次 RPC 失败且无旧数据：只降级花费块，其余端点数据照常渲染
           trailingErrorGroups.push(React.createElement('span', { className: 'bi-err', key: 'usageerr', title: '花费暂不可用；不会影响对话。' }, '花费获取失败'));
@@ -620,9 +635,9 @@ module.exports = {
 
       // ---- 订阅制模式（互斥替换余额制版，row2 只三类信息）：
       //      订阅服务+模型 → 三窗口额度 → 距重置倒计时（最紧窗口）；余额/时段/花费/token 均不显示 ----
-      function subscriptionFailureHint(error, source) {
+       function subscriptionFailureHint(error, source) {
          const kind = error && error.kind;
-         const serviceName = source === 'opencode-go' ? 'OpenCode Go' : 'ChatGPT';
+         const serviceName = subscriptionServiceName(source);
          const message = error && typeof error.message === 'string' ? error.message : '';
          const statusMatch = message.match(/HTTP (\d{3})/);
          const status = statusMatch ? statusMatch[1] : '';
@@ -642,7 +657,7 @@ module.exports = {
         if (!sub) {
           if (errors.sub) {
             // 本次 RPC 失败且无旧数据：显示失败信息而非永久"加载中…"
-            trailingErrorGroups.push(React.createElement('span', { className: 'bi-stale', key: 'suberr', title: subscriptionFailureHint({ kind: 'exception', message: String(errors.sub) }) }, '刷新失败'));
+            trailingErrorGroups.push(React.createElement('span', { className: 'bi-stale', key: 'suberr', title: subscriptionFailureHint({ kind: 'exception', message: String(errors.sub) }, visibleBillingMode && visibleBillingMode.provider) }, '刷新失败'));
           }
           return;
         }
@@ -655,7 +670,7 @@ module.exports = {
         // no-key（无令牌/缺 access_token）与 auth（令牌失效 401）→ 统一"未绑定/重新绑定"引导——
         // 令牌由独立插件 dsh-chatgpt-subscription 维护，本插件只读令牌显示额度，不自行绑定/续期
         if (sub.error && !hasData) {
-          trailingErrorGroups.push(React.createElement('span', { className: 'bi-stale', key: 'substale', title: subscriptionFailureHint(sub.error, sub.source) }, '刷新失败'));
+          trailingErrorGroups.push(React.createElement('span', { className: 'bi-stale', key: 'substale', title: subscriptionFailureHint(sub.error, sub.source || (visibleBillingMode && visibleBillingMode.provider)) }, '刷新失败'));
           return;
         }
         // 窗口缺失（如 Codex 无 5 小时窗口）→ 跳过窗口组，不占位、不报错
@@ -688,19 +703,20 @@ module.exports = {
             if (i > 0) winNodes.push(' · ');
             const remaining = remainingPercent(w);
             const numberClass = remaining <= LOW_QUOTA_PERCENT ? 'bi-quota-low' : '';
-            winNodes.push(compactWindowLabel(w.key) + ' ', num(remaining + '%', numberClass));
+            winNodes.push(metric(compactWindowLabel(w.key), remaining + '%', numberClass));
+            if (remaining <= LOW_QUOTA_PERCENT) winNodes.push(React.createElement('span', { key: 'low' + i, className: 'bi-low-status' }, '低'));
           }
           groups.push(React.createElement('span', { key: 'subwin', title: titleLines.join('\n') }, ...winNodes));
           // host 快照失败（sub.error）或本次 RPC 失败（errors.sub）→ 均保留旧数据 + 降级标记
           if (sub.error || errors.sub) {
-            trailingErrorGroups.push(React.createElement('span', { className: 'bi-stale', key: 'substale', title: subscriptionFailureHint(sub.error || { kind: 'exception', message: String(errors.sub || '') }) }, '刷新失败'));
+            trailingErrorGroups.push(React.createElement('span', { className: 'bi-stale', key: 'substale', title: subscriptionFailureHint(sub.error || { kind: 'exception', message: String(errors.sub || '') }, sub.source || (visibleBillingMode && visibleBillingMode.provider)) }, '刷新失败'));
           }
           // 距重置倒计时（与显示的窗口一致，确保额度与倒计时匹配）
           if (displayWindow && displayWindow.resetsAt) {
             const cdTitle = displayWindow.label + '窗口 剩余 ' + remainingPercent(displayWindow)
               + '%（已用 ' + displayWindow.usedPercent + '%） · 重置 ' + formatDateTime(displayWindow.resetsAt);
             groups.push(React.createElement('span', { key: 'subcd', title: cdTitle },
-              '距重置 ', num(fmtResetCountdown(displayWindow.resetsAt - now))));
+              metric('距重置', fmtResetCountdown(displayWindow.resetsAt - now))));
           }
         }
       }
@@ -771,7 +787,7 @@ module.exports = {
         if (groups.length > 0 || i > 0) nodes.push(React.createElement('span', { key: 'errsep' + i, className: 'bi-sep' }, '|'));
         nodes.push(React.createElement('span', { key: 'err' + i }, visibleErrors[i]));
       }
-      const row2 = React.createElement('div', { className: 'bi-row2' }, ...nodes);
+      const row2 = React.createElement('div', { id: 'dsh-bottom-info-bar-primary', className: 'bi-row2' }, ...nodes);
 
       let row1 = null;
       if (statsProj) {
@@ -780,31 +796,40 @@ module.exports = {
         function group(parts, hidden) {
           const nodesArr = [];
           const texts = [];
+          function textOf(part) {
+            if (part == null) return '';
+            if (typeof part === 'string' || typeof part === 'number') return String(part);
+            if (Array.isArray(part)) return part.map(textOf).join('');
+            if (part.props && part.props['data-metric-text']) return part.props['data-metric-text'];
+            return part.props ? textOf(part.props.children) : '';
+          }
           for (let i = 0; i < parts.length; i++) {
             const p = parts[i];
             if (typeof p === 'string') { nodesArr.push(p); texts.push(p); }
-            else { nodesArr.push(p); texts.push(p.props.children); }
+            else if (Array.isArray(p)) { for (let j = 0; j < p.length; j++) nodesArr.push(p[j]); texts.push(textOf(p)); }
+            else { nodesArr.push(p); texts.push(textOf(p)); }
           }
           ng.push({ nodes: nodesArr, text: texts.join(''), hidden: !!hidden });
         }
 
-        group([num(statsProj.turns), ' 轮 · ', num(statsProj.steps), ' 步']);
+        // 中文界面遵循数字与汉字混排留白：数值与量词视觉上分开，便于快速扫读。
+        group([num(statsProj.turns + ' 轮'), ' · ', num(statsProj.steps + ' 步')]);
 
         const durations = [];
-        if (statsProj.llmMs > 0) durations.push('LLM ', num(formatDuration(statsProj.llmMs)));
-        if (statsProj.toolMs > 0) durations.push(' · 工具调用 ', num(formatDuration(statsProj.toolMs)));
+        if (statsProj.llmMs > 0) durations.push(metric('LLM', formatDuration(statsProj.llmMs)));
+        if (statsProj.toolMs > 0) durations.push(' · ', metric('工具调用', formatDuration(statsProj.toolMs)));
         if (durations.length > 0) group(durations);
 
         const speeds = [];
-        if (statsProj.ttftSteps > 0) speeds.push('首 token 平均 ', num(formatDuration(statsProj.ttftMs / statsProj.ttftSteps)));
-        if (statsProj.decodeMs > 0) speeds.push(' · ', num(formatTps(statsProj.decodeTokens / (statsProj.decodeMs / 1e3))), ' tok/s');
+        if (statsProj.ttftSteps > 0) speeds.push(metric('首 token 平均', formatDuration(statsProj.ttftMs / statsProj.ttftSteps)));
+        if (statsProj.decodeMs > 0) speeds.push(' · ', num(formatTps(statsProj.decodeTokens / (statsProj.decodeMs / 1e3)) + ' tok/s'));
         if (speeds.length > 0) group(speeds, HIDE_SPEED_FIELDS); // 不占可见版式，title 浮窗保留
 
         if (usageProj && (billedInput(usageProj) > 0 || (usageProj.outputTokens || 0) > 0)) {
           const denom = billedInput(usageProj);
           const hit = denom > 0 ? Math.round(((usageProj.cacheReadTokens || 0) / denom) * 100) : null;
-          if (hit != null) group(['缓存命中 ', num(hit), '%']);
-          group(['输入 ', num(formatTokens(billedInput(usageProj))), ' tok · 输出 ', num(formatTokens(usageProj.outputTokens || 0)), ' tok']);
+          if (hit != null) group([metric('缓存命中', hit + '%')]);
+          group([metric('输入', formatTokens(billedInput(usageProj)) + ' tok'), ' · ', metric('输出', formatTokens(usageProj.outputTokens || 0) + ' tok')]);
         }
 
         const nativeLine = ng.map(function (g) { return g.text; }).join(' | ');
@@ -816,7 +841,7 @@ module.exports = {
           visCount++;
           ngNodes.push(React.createElement('span', { key: 'ng' + i }, ng[i].nodes));
         }
-        row1 = React.createElement('div', { className: 'bi-native-row', title: nativeLine }, ...ngNodes);
+        row1 = React.createElement('div', { id: 'dsh-bottom-info-bar-native', className: 'bi-native-row', title: nativeLine }, ...ngNodes);
       }
 
       const animatedRow1 = row1 === null ? null : React.createElement('div', { className: 'bi-density-extra' },
@@ -833,14 +858,17 @@ module.exports = {
         },
         role: 'button',
         tabIndex: 0,
-        'aria-label': full ? '切换为简洁模式' : '切换为完整模式',
+        'aria-labelledby': full && row1 !== null ? 'dsh-bottom-info-bar-native dsh-bottom-info-bar-primary' : 'dsh-bottom-info-bar-primary',
+        'aria-describedby': 'dsh-bottom-info-bar-action',
         'aria-pressed': full,
         'aria-busy': isDensitySaving,
         'aria-disabled': isDensitySaving,
         'data-density': displayDensity,
         'data-density-saving': isDensitySaving,
         title: isDensitySaving ? '正在保存切换…' : '单击切换 完整/简洁',
-      }, animatedRow1, row2);
+      }, animatedRow1, row2,
+      React.createElement('span', { id: 'dsh-bottom-info-bar-action', className: 'bi-sr-only' },
+        full ? '按 Enter 或空格切换为简洁模式。' : '按 Enter 或空格切换为完整模式。'));
     }
   },
 };

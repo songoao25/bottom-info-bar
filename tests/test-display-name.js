@@ -4,7 +4,7 @@
 // ③ 目录外未知模型 → 回退原始 model id
 // ④ llm/adapters-updated 事件 → 重建目录名缓存（模型改名后 getPricing 立即反映）
 // ⑤ 边界：空模型 → 未知模型；未知服务商 → 大写首字母回退
-// ⑥ client 静态检查：服务商名是模型名前缀时只显示模型名（避免 "DeepSeek · DeepSeek-V4-Flash" 重复）
+// ⑥ client 静态检查：服务商与模型始终拆分；模型名去除重复的服务商前缀（"DeepSeek · V4 Flash"）
 // 用法：node tests/test-display-name.js（由 run-all.mjs 统一驱动，先 build 再测）
 const fs = require('fs');
 const path = require('path');
@@ -260,12 +260,15 @@ const settle = () => new Promise((r) => setTimeout(r, 40));
   // ================= ⑥ client 静态检查（M5 展示） =================
   check('client 模型名直接用 host 返回的 modelDisplay（无自建美化依赖）',
     clientSrc.includes("const modelLabel = (pr && pr.modelDisplay) ? pr.modelDisplay"), true);
-  check('client 服务商名是模型名前缀 → 只显示模型名（切换器样式）',
-    clientSrc.includes('modelLabel.toLowerCase().indexOf(provLabel.toLowerCase()) === 0'), true);
+  check('client 服务商与模型始终分离，模型名只去除重复服务商前缀',
+    clientSrc.includes('const modelName = modelLabelWithoutProvider(modelLabel, provLabel);')
+      && !clientSrc.includes('const redundant = provLabel.length'), true);
   check('client 订阅制模型名同样用 DSH 目录名（modelDisplay）',
     clientSrc.includes("const modelLabel = (pr && pr.modelDisplay) ? pr.modelDisplay"), true);
+  check('client 仅在服务商名后存在分隔符时去重，避免误截断真实模型名',
+    clientSrc.includes("if (!/^[\\s·._/-]+/.test(suffix)) return modelLabel;"), true);
   check('client 只在 host 明确返回视觉能力时，复刻“模型名 视觉”靛蓝椭圆并将服务商置于椭圆外',
-    clientSrc.includes("pr.acceptsImageInput !== true") && clientSrc.includes("modelLabel, ' 视觉'")
+    clientSrc.includes("pr.acceptsImageInput !== true") && clientSrc.includes("className: 'bi-vision-kind' }, '视觉'")
       && clientSrc.includes("modelLabelWithoutProvider(modelLabel, provLabel)") && clientSrc.includes("支持图像输入。"), true);
 
   fs.rmSync(tmpRoot, { recursive: true, force: true });
