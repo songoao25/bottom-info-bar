@@ -192,6 +192,7 @@ module.exports = {
         loading: true, balance: null, pricing: null, usage: null, billingMode: null, sub: null,
         errors: { balance: null, pricing: null, usage: null, billingMode: null, sub: null },
       });
+      // 版本信息由 host 在启动时从 package.json 读取；无论是否有新版，都用于服务商/模型 hover 展示。
       const [updateInfo, setUpdateInfo] = React.useState(null);
        const [now, setNow] = React.useState(Date.now());
 
@@ -246,7 +247,7 @@ module.exports = {
        React.useEffect(function () {
          let active = true;
          rpc('getUpdateInfo').then(function (info) {
-           if (active && info && info.available === true && typeof info.latest === 'string') setUpdateInfo(info);
+           if (active && info && typeof info.current === 'string') setUpdateInfo(info);
          }).catch(function () { /* 版本检查失败静默，不影响信息栏 */ });
          return function () { active = false; };
        }, []);
@@ -363,9 +364,12 @@ module.exports = {
         const modelLabel = (pr && pr.modelDisplay) ? pr.modelDisplay
           : (pr && pr.model ? pr.model : '未知模型');
         const redundant = provLabel.length > 1 && modelLabel.toLowerCase().indexOf(provLabel.toLowerCase()) === 0;
+        const versionLine = updateInfo && typeof updateInfo.current === 'string'
+          ? '\n插件版本：' + updateInfo.current : '';
         const provTitle = '服务商：' + provLabel + ' ' + modelLabel + '\n'
           + (pr && pr.mode === 'peak-valley' ? '定价：峰谷价（高峰 9-12、14-18 点）'
-            : (pr && pr.mode === 'flat' ? '定价：固定价' : '定价：未收录，按默认计'));
+            : (pr && pr.mode === 'flat' ? '定价：固定价' : '定价：未收录，按默认计'))
+          + versionLine;
         if (redundant) {
           return React.createElement('span', { key: 'prov', title: provTitle },
             React.createElement('b', null, modelLabel));
@@ -392,7 +396,9 @@ module.exports = {
         const serviceName = subscriptionServiceName(state.billingMode && state.billingMode.provider);
         const modelLabel = (pr && pr.modelDisplay) ? pr.modelDisplay
           : (pr && pr.model ? pr.model : '未知模型');
-        const title = '订阅服务：' + serviceName + '\n模型：' + modelLabel;
+        const versionLine = updateInfo && typeof updateInfo.current === 'string'
+          ? '\n插件版本：' + updateInfo.current : '';
+        const title = '订阅服务：' + serviceName + '\n模型：' + modelLabel + versionLine;
         return React.createElement('span', { key: 'subprov', title: title },
           React.createElement('b', null, serviceName),
           ' · ',
