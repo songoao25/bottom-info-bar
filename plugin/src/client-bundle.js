@@ -110,9 +110,9 @@ function installStyles() {
       /* 高峰价用主文字保证小字号可读；空闲价以绿色辅助“更优惠”的文字含义。 */
       .bi-peak    { color: var(--bi-label-primary); font-weight: 700; }
       .bi-offpeak { color: var(--bi-state-price-low); font-weight: 700; }
-      .bi-err, .bi-stale, .bi-alert { color: var(--bi-state-alert); font-weight: 600; }
+      .bi-err, .bi-stale { color: var(--bi-state-alert); font-weight: 600; }
       .bi-muted{ color: var(--bi-label-tertiary); }
-      .bi-quota-low { color: var(--bi-state-alert); font-weight: 700; }
+      .bi-root b.bi-alert-num, .bi-root b.bi-quota-low { color: var(--bi-state-alert); font-weight: 700; }
       /* 新版本需要用户处理，与其他提醒使用统一鲜红色文字，不伪装成链接。 */
       .bi-update{ color: var(--bi-state-alert); font-weight: 600; }
       /* 视觉能力是模型属性，不是告警：靛蓝紫实色、白字；高度收紧到字形范围内，避免压过同一行文字。 */
@@ -360,8 +360,8 @@ module.exports = {
       }
 
       // 数字统一加粗（仅数字本身）
-      function num(t) {
-        return React.createElement('b', { className: 'bi-num' }, String(t));
+      function num(t, extraClass) {
+        return React.createElement('b', { className: 'bi-num' + (extraClass ? ' ' + extraClass : '') }, String(t));
       }
 
       // 仅在 DSH 模型目录明确声明 inputModalities 包含 image 时，将“完整模型名 视觉”合并为一个椭圆。
@@ -454,9 +454,8 @@ module.exports = {
             : '余额：' + symbol + fmt(bal.data.total);
           groups.push(React.createElement('span', { key: 'bal', title: balTitle },
             '余额 ',
-            num(symbol + fmt(bal.data.total)),
+            num(symbol + fmt(bal.data.total), alertActive ? 'bi-alert-num' : ''),
             bal.estimate ? React.createElement('span', { className: 'bi-muted' }, '（估算）') : null,
-            alertActive ? React.createElement('span', { className: 'bi-alert', title: '余额低于预警阈值。' }, ' 余额偏低') : null,
           ));
           // host 快照失败（bal.error）或本次 RPC 失败（errors.balance）→ 均保留旧数据 + 降级标记
           if (bal.error || errors.balance) {
@@ -575,7 +574,6 @@ module.exports = {
           
           // 预警触发条件：已用 ≥80%（= 剩余 ≤20%）→ 鲜红色文字；正常额度使用中性文字。
           const LOW_QUOTA_PERCENT = 20;
-          const alarmWindows = windows.filter(function (w) { return w.usedPercent >= (100 - LOW_QUOTA_PERCENT); });
           const titleLines = ['订阅源：' + subscriptionServiceName(state.billingMode && state.billingMode.provider) + (sub.plan ? '（' + sub.plan + '）' : '')]
             .concat(windows.map(function (w) {
               return w.label + '窗口：剩余 ' + remainingPercent(w) + '%（已用 ' + w.usedPercent + '%）'
@@ -586,18 +584,10 @@ module.exports = {
             const w = visible[i];
             if (i > 0) winNodes.push(' · ');
             const remaining = remainingPercent(w);
-            const colorClass = remaining <= LOW_QUOTA_PERCENT ? 'bi-quota-low' : '';
-            winNodes.push(compactWindowLabel(w.key) + ' ', React.createElement('span', { className: colorClass }, num(remaining + '%')));
+            const numberClass = remaining <= LOW_QUOTA_PERCENT ? 'bi-quota-low' : '';
+            winNodes.push(compactWindowLabel(w.key) + ' ', num(remaining + '%', numberClass));
           }
-          groups.push(React.createElement('span', { key: 'subwin', title: titleLines.join('\n') },
-            ...winNodes,
-            alarmWindows.length > 0
-              ? React.createElement('span', {
-                  className: 'bi-err', key: 'subalarm',
-                  title: '窗口告急：' + alarmWindows.map(function (w) { return w.label + '窗口剩余 ≤20%'; }).join('、'),
-                }, ' 剩余偏低')
-              : null,
-          ));
+          groups.push(React.createElement('span', { key: 'subwin', title: titleLines.join('\n') }, ...winNodes));
           // host 快照失败（sub.error）或本次 RPC 失败（errors.sub）→ 均保留旧数据 + 降级标记
           if (sub.error || errors.sub) {
             trailingErrorGroups.push(React.createElement('span', { className: 'bi-stale', key: 'substale', title: subscriptionFailureHint(sub.error || { kind: 'exception', message: String(errors.sub || '') }) }, '刷新失败'));
