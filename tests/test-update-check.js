@@ -1,4 +1,4 @@
-// 版本检查与极简红色提醒静态回归
+// 版本检查与极简信息提醒静态回归
 const fs = require('fs')
 const host = fs.readFileSync('plugin/src/host.js', 'utf8')
 const client = fs.readFileSync('plugin/src/client-bundle.js', 'utf8')
@@ -36,8 +36,8 @@ check('余额制服务商/模型 hover 显示当前插件版本', client.include
 check('订阅制服务商/模型 hover 同样显示当前插件版本', (client.match(/'\\n插件版本：' \+ updateInfo\.current/g) || []).length === 2)
 check('client 只在有更新时显示新版本提醒文字', client.includes("'新版本提醒'") && client.includes('updateInfo.available === true'))
 check('更新标签提示语包含动态最新版本号', client.includes("title: '请告知你的 Agent 将本插件更新到“' + updateInfo.latest + '”版本。'"))
-check('更新标签使用红色、加粗、下划线', client.includes('.bi-update{ color: var(--dsw-alias-state-error-primary')
-  && client.includes('font-weight: 700') && client.includes('text-decoration: underline'))
+check('更新标签使用信息语义色，不误用错误色或下划线', client.includes('.bi-update{ color: var(--bi-state-info); font-weight: 600; }')
+  && !client.includes('.bi-update{ color: var(--dsw-alias-state-error-primary') && !client.includes('text-decoration: underline'))
 check('更新标签不是链接或按钮', !client.includes('window.open') && !client.includes("<a") && !client.includes("'a'"))
 check('不包含自动更新命令执行逻辑', !client.includes('child_process') && !host.includes('exec(') && !host.includes('spawn('))
 

@@ -97,21 +97,22 @@ function installStyles() {
   style.dataset.plugin = 'dsh-bottom-info-bar';
   style.dataset.pluginCss = id;
   style.textContent = `
-      .bi-root { text-align: center; max-width: var(--dsh-chat-content-width); box-sizing: border-box; width: 100%; padding: 4px calc(var(--dsh-composer-side-clearance) + 16px) 0px; margin: 0 auto; display: block; overflow: hidden; font-size: 12px; line-height: 20px; color: var(--dsw-alias-label-tertiary, rgba(128,128,128,0.9)); font-variant-numeric: tabular-nums; cursor: pointer; }
+      .bi-root { --bi-label-primary: var(--dsw-alias-label-primary, #333); --bi-label-tertiary: var(--dsw-alias-label-tertiary, rgba(128,128,128,0.9)); --bi-separator: var(--dsw-alias-separator-primary, rgba(128,128,128,0.5)); --bi-state-price-high: var(--dsw-alias-state-warn-primary, #d97706); --bi-state-price-low: var(--dsw-alias-state-success-primary, #16a34a); --bi-state-warning: var(--dsw-alias-state-warn-primary, #d97706); --bi-state-error: var(--dsw-alias-state-error-primary, #dc2626); --bi-state-info: var(--dsw-alias-state-info-primary, var(--dsw-alias-label-primary, #333)); text-align: center; max-width: var(--dsh-chat-content-width); box-sizing: border-box; width: 100%; padding: 4px calc(var(--dsh-composer-side-clearance) + 16px) 0px; margin: 0 auto; display: block; overflow: hidden; font-size: 12px; line-height: 20px; color: var(--bi-label-tertiary); font-variant-numeric: tabular-nums; cursor: pointer; }
       .bi-native-row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; width: 100%; }
       .bi-row2 { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; width: 100%; }
       .bi-native-row > span, .bi-row2 > span { white-space: nowrap; }
-      .bi-sep { color: var(--dsw-alias-separator-primary, rgba(128,128,128,0.5)); margin: 0 8px; }
+      .bi-sep { color: var(--bi-separator); margin: 0 8px; }
       /* 服务商名等一般强调：加粗 600 */
-      .bi-root b { color: var(--dsw-alias-label-primary, #333); font-weight: 600; }
+      .bi-root b { color: var(--bi-label-primary); font-weight: 600; }
       /* 数字：加粗 700（余额/倒计时/本对话花费/原生统计数字） */
       .bi-root b.bi-num { font-weight: 700; }
       /* 高峰价：琥珀色 + 加粗；空闲价：绿色 + 加粗 */
-      .bi-peak    { color: var(--dsw-alias-state-warn-primary, #d97706); font-weight: 700; }
-      .bi-offpeak { color: var(--dsw-alias-state-success-primary, #16a34a); font-weight: 700; }
-      .bi-err  { color: var(--dsw-alias-state-error-primary, #dc2626); }
-      .bi-stale{ color: var(--dsw-alias-state-warn-primary, #d97706); }
-       .bi-update{ color: var(--dsw-alias-state-error-primary, #dc2626); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+      .bi-peak    { color: var(--bi-state-price-high); font-weight: 700; }
+      .bi-offpeak { color: var(--bi-state-price-low); font-weight: 700; }
+      .bi-err  { color: var(--bi-state-error); }
+      .bi-stale{ color: var(--bi-state-warning); }
+      /* 有新版本是可处理的信息，不是错误，也不是链接。 */
+      .bi-update{ color: var(--bi-state-info); font-weight: 600; }
     `;
   document.head.appendChild(style);
   return function () { style.remove(); };
