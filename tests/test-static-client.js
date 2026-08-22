@@ -31,10 +31,8 @@ check('client 源码含 toggling 防抖', clientSrc.includes('toggling'), true);
 check('client 源码含严格判定 === \'full\'', clientSrc.includes("props.density === 'full'"), true);
 check('client 源码不含 !== \'compact\' 宽松判定', !clientSrc.includes("props.density !== 'compact'"), true);
 check('client 源码 root onClick 绑定 onToggleDensity', clientSrc.includes('onClick: function () { props.onToggleDensity(); }'), true);
-check('client 信息栏支持键盘切换密度', clientSrc.includes("role: 'button'")
-  && clientSrc.includes('tabIndex: 0')
-  && clientSrc.includes('onKeyDown: function (event)')
-  && clientSrc.includes("event.key === 'Enter' || event.key === ' '"), true);
+check('client 不额外引入键盘切换，保持鼠标单击交互', !clientSrc.includes("role: 'button'")
+  && !clientSrc.includes('onKeyDown: function (event)'), true);
 
 // 4) 当前会话 ID 多路获取（修复：新对话显示上一会话金额）
 check('client 优先读 props.sessionId', clientSrc.includes('if (p.sessionId) return p.sessionId;'), true);
@@ -58,14 +56,13 @@ check('低余额和低额度仅突出对应数字，不追加文字或三角图�
   && !clientSrc.includes('余额偏低') && !clientSrc.includes('剩余偏低')
   && clientSrc.includes("alertActive ? 'bi-alert-num' : ''")
   && clientSrc.includes("num(remaining + '%', numberClass)"), true);
-check('报错标签统一延后到整行最右侧', clientSrc.includes('const trailingErrorGroups = []')
+check('报错标签统一延后到居中信息组的末尾', clientSrc.includes('const trailingErrorGroups = []')
   && clientSrc.includes('trailingErrorGroups.push')
-  && clientSrc.includes('.bi-row2-errors { grid-column: 3; justify-self: end;')
-  && clientSrc.includes("className: 'bi-row2-errors'"), true);
+  && clientSrc.includes("const row2 = React.createElement('div', { className: 'bi-row2' }, ...nodes);"), true);
 check('多个刷新失败合并为一个右侧标签', clientSrc.includes('const seenRefreshFailure = { value: false };')
   && clientSrc.includes("if (text !== '刷新失败') return true;"), true);
-check('错误说明可被辅助技术读取', clientSrc.includes('function errorTag(className, key, title, text)')
-  && clientSrc.includes("'aria-label': title"), true);
+check('状态说明维持原生悬浮提示，不额外引入读屏文案', !clientSrc.includes("'aria-label': title")
+  && !clientSrc.includes("'aria-label': modelLabel"), true);
 
 // 7) 视觉模型：仅 host 明确识别后展示，复刻参考图的实色靛蓝椭圆
 check('视觉标识只接受 host 的显式 true，不通过名称猜测', clientSrc.includes("pr.acceptsImageInput !== true"), true);
