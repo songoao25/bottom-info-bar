@@ -48,6 +48,9 @@ check('正常订阅额度不使用绿色成功色', clientSrc.includes("remainin
 check('高峰价使用主文字保证小字号可读', clientSrc.includes('.bi-peak    { color: var(--bi-label-primary); font-weight: 700; }'), true);
 check('错误与警告保留语义色和字重', clientSrc.includes('.bi-err  { color: var(--bi-state-error); font-weight: 600; }')
   && clientSrc.includes('.bi-stale{ color: var(--bi-state-warning); font-weight: 600; }'), true);
+check('报错标签统一延后到整行最右侧', clientSrc.includes('const trailingErrorGroups = []')
+  && clientSrc.includes('trailingErrorGroups.push')
+  && clientSrc.includes('groups.push(...trailingErrorGroups);'), true);
 
 // 7) 视觉模型：仅 host 明确识别后展示，复刻参考图的实色靛蓝椭圆
 check('视觉标识只接受 host 的显式 true，不通过名称猜测', clientSrc.includes("pr.acceptsImageInput !== true"), true);

@@ -211,8 +211,8 @@ function extractClientFnBody(name) {
 const subFn = extractClientFnBody('pushSubscriptionGroups');
 
 check('client 按 billingMode 分支互斥渲染', clientSrc.includes("const isSub = !!(state.billingMode && state.billingMode.mode === 'subscription')"), true);
-check('client 余额制渲染函数独立保留', clientSrc.includes('function pushBalanceGroups(groups)'), true);
-check('client 订阅制渲染函数存在', clientSrc.includes('function pushSubscriptionGroups(groups)'), true);
+check('client 余额制渲染函数独立保留', clientSrc.includes('function pushBalanceGroups(groups, trailingErrorGroups)'), true);
+check('client 订阅制渲染函数存在', clientSrc.includes('function pushSubscriptionGroups(groups, trailingErrorGroups)'), true);
 check('client 三窗口显示剩余百分比（紧凑标签+加粗数值）', clientSrc.includes("winNodes.push(compactWindowLabel(w.key) + ' ', React.createElement('span', { className: colorClass }, num(remaining + '%')))"), true);
 check('client compact 密度精简为最紧窗口', clientSrc.includes('const visible = full ? windows : (displayWindow ? [displayWindow] : []);'), true);
 check('client 无快照时显示加载中（RPC 未返回分支）', subFn.includes("'订阅额度加载中…'"), true);

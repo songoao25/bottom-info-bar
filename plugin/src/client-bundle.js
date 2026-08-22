@@ -429,7 +429,7 @@ module.exports = {
       }
 
       // ---- 余额制模式（v1.0.0 现状，完全不动）：服务商+模型 → 余额 → 时段 → 倒计时 → 本对话花费 ----
-      function pushBalanceGroups(groups) {
+      function pushBalanceGroups(groups, trailingErrorGroups) {
         const bal = state.balance;
         const errors = state.errors || {};
         const alertActive = !!(bal && bal.alert && bal.alert.active);
@@ -437,7 +437,7 @@ module.exports = {
 
         // 余额（纯金额；hover 仅展示余额，不显示充值/赠金）
         if (bal && bal.error && bal.error.kind === 'no-key') {
-          groups.push(React.createElement('span', { className: 'bi-err', key: 'nokey', title: '未配置 DeepSeek API Key。请在“设置 → 模型”中填写。' },
+          trailingErrorGroups.push(React.createElement('span', { className: 'bi-err', key: 'nokey', title: '未配置 DeepSeek API Key。请在“设置 → 模型”中填写。' },
             '未配置 DEEPSEEK_API_KEY → 设置→模型 填写'));
         } else if (bal && bal.data) {
           const symbol = bal.currency === 'USD' ? '$' : '¥';
@@ -452,13 +452,13 @@ module.exports = {
           ));
           // host 快照失败（bal.error）或本次 RPC 失败（errors.balance）→ 均保留旧数据 + 降级标记
           if (bal.error || errors.balance) {
-            groups.push(React.createElement('span', { className: 'bi-stale', key: 'balerr', title: '余额暂不可用；正在显示上次数据并自动重试。' }, '⚠ 刷新失败'));
+            trailingErrorGroups.push(React.createElement('span', { className: 'bi-stale', key: 'balerr', title: '余额暂不可用；正在显示上次数据并自动重试。' }, '⚠ 刷新失败'));
           }
         } else if (bal && bal.error) {
-          groups.push(React.createElement('span', { className: 'bi-err', key: 'berr', title: '余额获取失败。请检查网络和 API Key。' }, '余额获取失败'));
+          trailingErrorGroups.push(React.createElement('span', { className: 'bi-err', key: 'berr', title: '余额获取失败。请检查网络和 API Key。' }, '余额获取失败'));
         } else if (errors.balance) {
           // 本次 RPC 失败且无旧数据：只降级余额块，其余端点数据照常渲染
-          groups.push(React.createElement('span', { className: 'bi-err', key: 'berr', title: '余额获取失败。请检查网络和 API Key。' }, '余额获取失败'));
+          trailingErrorGroups.push(React.createElement('span', { className: 'bi-err', key: 'berr', title: '余额获取失败。请检查网络和 API Key。' }, '余额获取失败'));
         }
 
         // 时段：仅峰谷价服务商显示"高峰价/空闲价"（flat/unknown 服务商不显示；hover 展示具体价格）
@@ -502,7 +502,7 @@ module.exports = {
             num(costTxt)));
         } else if (errors.usage) {
           // 本次 RPC 失败且无旧数据：只降级花费块，其余端点数据照常渲染
-          groups.push(React.createElement('span', { className: 'bi-err', key: 'usageerr', title: '花费暂不可用；不会影响对话。' }, '花费获取失败'));
+          trailingErrorGroups.push(React.createElement('span', { className: 'bi-err', key: 'usageerr', title: '花费暂不可用；不会影响对话。' }, '花费获取失败'));
         }
       }
 
@@ -523,14 +523,14 @@ module.exports = {
          return serviceName + ' 暂不可用。请检查网络后再试。';
        }
 
-       function pushSubscriptionGroups(groups) {
+       function pushSubscriptionGroups(groups, trailingErrorGroups) {
         groups.push(subscriptionProviderGroup());
         const sub = state.sub;
         const errors = state.errors || {};
         if (!sub) {
           if (errors.sub) {
             // 本次 RPC 失败且无旧数据：显示失败信息而非永久"加载中…"
-            groups.push(React.createElement('span', { className: 'bi-stale', key: 'suberr', title: subscriptionFailureHint({ kind: 'exception', message: String(errors.sub) }) }, '⚠ 刷新失败'));
+            trailingErrorGroups.push(React.createElement('span', { className: 'bi-stale', key: 'suberr', title: subscriptionFailureHint({ kind: 'exception', message: String(errors.sub) }) }, '⚠ 刷新失败'));
           } else {
             groups.push(React.createElement('span', { key: 'subload' }, '订阅额度加载中…'));
           }
@@ -545,7 +545,7 @@ module.exports = {
         // no-key（无令牌/缺 access_token）与 auth（令牌失效 401）→ 统一"未绑定/重新绑定"引导——
         // 令牌由独立插件 dsh-chatgpt-subscription 维护，本插件只读令牌显示额度，不自行绑定/续期
         if (sub.error && !hasData) {
-          groups.push(React.createElement('span', { className: 'bi-stale', key: 'substale', title: subscriptionFailureHint(sub.error, sub.source) }, '⚠ 刷新失败'));
+          trailingErrorGroups.push(React.createElement('span', { className: 'bi-stale', key: 'substale', title: subscriptionFailureHint(sub.error, sub.source) }, '⚠ 刷新失败'));
           return;
         }
         // 窗口缺失（如 Codex 无 5 小时窗口）→ 跳过窗口组，不占位、不报错
@@ -592,7 +592,7 @@ module.exports = {
           ));
           // host 快照失败（sub.error）或本次 RPC 失败（errors.sub）→ 均保留旧数据 + 降级标记
           if (sub.error || errors.sub) {
-            groups.push(React.createElement('span', { className: 'bi-stale', key: 'substale', title: subscriptionFailureHint(sub.error || { kind: 'exception', message: String(errors.sub || '') }) }, '⚠ 刷新失败'));
+            trailingErrorGroups.push(React.createElement('span', { className: 'bi-stale', key: 'substale', title: subscriptionFailureHint(sub.error || { kind: 'exception', message: String(errors.sub || '') }) }, '⚠ 刷新失败'));
           }
           // 距重置倒计时（与显示的窗口一致，确保额度与倒计时匹配）
           if (displayWindow && displayWindow.resetsAt) {
@@ -605,6 +605,8 @@ module.exports = {
       }
 
       const groups = [];
+      // 报错不打断主要信息的阅读顺序：统一延后到整行最右侧。
+      const trailingErrorGroups = [];
       // 两态严格判定：density 只能是 'full' 或 'compact'（host 校验 + 本地防抖保证）
       const full = props.density === 'full';
       // 模式互斥：订阅制渲染订阅版 row2，余额制渲染 v1.0.0 现状，绝不叠加
@@ -616,9 +618,9 @@ module.exports = {
       if (state.loading && !hasAnyData) {
         groups.push(React.createElement('span', { key: 'loading' }, '加载中…'));
       } else if (isSub) {
-        pushSubscriptionGroups(groups);
+        pushSubscriptionGroups(groups, trailingErrorGroups);
       } else {
-        pushBalanceGroups(groups);
+        pushBalanceGroups(groups, trailingErrorGroups);
       }
 
       // 全局降级提示：任一端点失败 → 旧数据照常渲染 + 角落提示（title 列出失败项），仅失败项降级
@@ -630,16 +632,18 @@ module.exports = {
       if (errors.billingMode) failedLabels.push('模式');
       if (errors.sub) failedLabels.push('订阅额度');
       if (failedLabels.length > 0) {
-        groups.push(React.createElement('span', { className: 'bi-stale', key: 'degraded',
+        trailingErrorGroups.push(React.createElement('span', { className: 'bi-stale', key: 'degraded',
           title: failedLabels.join('、') + '暂不可用；正在保留上次数据并自动重试。' },
           '⚠ 部分数据刷新失败'));
       }
 
-      if (updateInfo && updateInfo.available === true) {
+       if (updateInfo && updateInfo.available === true) {
          groups.push(React.createElement('span', {
            className: 'bi-update', key: 'update', title: '请告知你的 Agent 将本插件更新到“' + updateInfo.latest + '”版本。',
-         }, '新版本提醒'));
+       }, '新版本提醒'));
        }
+
+       groups.push(...trailingErrorGroups);
 
        // ---- 组装 ----
       const sepNodes = [];
