@@ -115,8 +115,8 @@ function installStyles() {
       .bi-quota-low { color: var(--bi-state-warning); font-weight: 700; }
       /* 有新版本是可处理的信息，不是错误，也不是链接。 */
       .bi-update{ color: var(--bi-state-info); font-weight: 600; }
-      /* 视觉能力是模型属性，不是告警：复刻参考图的靛蓝实色、白字、深色细边和 20px 行高。 */
-      .bi-vision { display: inline-flex; align-items: center; box-sizing: border-box; height: 20px; margin: 0; padding: 0 7px; border: 1px solid #25269f; border-radius: 999px; color: #fff; background: #3232d6; font-size: 12px; font-weight: 600; line-height: 18px; vertical-align: top; }
+      /* 视觉能力是模型属性，不是告警：靛蓝紫实色、白字；高度收紧到字形范围内，避免压过同一行文字。 */
+      .bi-vision { display: inline-flex; align-items: center; box-sizing: border-box; height: 16px; margin: 0; padding: 0 6px; border: 1px solid #3730a3; border-radius: 999px; color: #fff; background: #4f46e5; font-size: 12px; font-weight: 600; line-height: 14px; vertical-align: -2px; }
     `;
   document.head.appendChild(style);
   return function () { style.remove(); };
