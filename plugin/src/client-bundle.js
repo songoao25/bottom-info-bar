@@ -119,6 +119,10 @@ function installStyles() {
       .bi-model-provider, .bi-model-dot { display: inline-flex; align-items: center; height: 16px; line-height: 14px; }
       .bi-model-dot { margin: 0 4px; }
       .bi-vision { display: inline-flex; align-items: center; box-sizing: border-box; height: 16px; margin: 0; padding: 0 6px; border: 1px solid #3730a3; border-radius: 999px; color: #fff; background: #4f46e5; font-size: 12px; font-weight: 600; line-height: 14px; }
+      /* 会话/模型切换：只动画真正变化的模型组，避免把频繁的余额刷新做成干扰。 */
+      @keyframes bi-model-transition { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
+      @media (prefers-reduced-motion: no-preference) { .bi-model-transition { animation: bi-model-transition 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both; } }
+      @media (prefers-reduced-motion: reduce) { .bi-model-transition { animation: none; } }
     `;
   document.head.appendChild(style);
   return function () { style.remove(); };
@@ -349,6 +353,11 @@ module.exports = {
         || state.billingMode.provider !== activeSessionModel.provider || state.billingMode.model !== activeSessionModel.model)
         ? { provider: activeSessionModel.provider, model: activeSessionModel.model, mode: ['codex', 'chatgpt', 'opencode-go', 'opencode', 'openai-codex'].indexOf(activeSessionModel.provider) >= 0 ? 'subscription' : 'balance' }
         : (waitForSessionModel ? null : state.billingMode);
+      // Changing this key remounts only the model group, which restarts the
+      // intentionally brief transition without animating balance or usage.
+      const modelTransitionKey = activeSessionModel
+        ? activeSessionModel.sessionId + ':' + activeSessionModel.provider + ':' + activeSessionModel.model
+        : 'fallback';
 
       // ---- 与原生一致格式工具 ----
       function formatTokens(n) {
@@ -451,15 +460,15 @@ module.exports = {
             : (pr && pr.mode === 'flat' ? '定价：固定价' : '定价：未收录，按默认计'))
           + versionLine;
         if (pr && pr.acceptsImageInput === true) {
-          return React.createElement('span', { key: 'prov', className: 'bi-model-group', title: provTitle },
+          return React.createElement('span', { key: 'prov:' + modelTransitionKey, className: 'bi-model-group bi-model-transition', title: provTitle },
             React.createElement('b', { className: 'bi-model-provider' }, provLabel),
             modelSeparator(),
             modelLabelWithCapability(pr, modelLabelWithoutProvider(modelLabel, provLabel)));
         }
         if (redundant) {
-          return React.createElement('span', { key: 'prov', title: provTitle }, modelLabel);
+          return React.createElement('span', { key: 'prov:' + modelTransitionKey, className: 'bi-model-transition', title: provTitle }, modelLabel);
         }
-        return React.createElement('span', { key: 'prov', title: provTitle },
+        return React.createElement('span', { key: 'prov:' + modelTransitionKey, className: 'bi-model-transition', title: provTitle },
           React.createElement('b', null, provLabel),
           ' ',
           modelLabelWithCapability(pr, modelLabel),
@@ -484,7 +493,7 @@ module.exports = {
         const versionLine = updateInfo && typeof updateInfo.current === 'string'
           ? '\n插件版本：' + updateInfo.current : '';
         const title = '订阅服务：' + serviceName + '\n模型：' + modelLabel + versionLine;
-        return React.createElement('span', { key: 'subprov', className: 'bi-model-group', title: title },
+        return React.createElement('span', { key: 'subprov:' + modelTransitionKey, className: 'bi-model-group bi-model-transition', title: title },
           React.createElement('b', { className: 'bi-model-provider' }, serviceName),
           modelSeparator(),
           modelLabelWithCapability(pr, modelLabel),
