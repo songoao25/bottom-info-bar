@@ -119,16 +119,6 @@ function installStyles() {
       .bi-model-provider, .bi-model-dot { display: inline-flex; align-items: center; height: 16px; line-height: 14px; }
       .bi-model-dot { margin: 0 4px; }
       .bi-vision { display: inline-flex; align-items: center; box-sizing: border-box; height: 16px; margin: 0; padding: 0 6px; border: 1px solid #3730a3; border-radius: 999px; color: #fff; background: #4f46e5; font-size: 12px; font-weight: 600; line-height: 14px; }
-      /* 模型交叉过渡：旧值离开、新值进入，共享同一空间，不带动整行布局。 */
-      .bi-model-crossfade { display: inline-grid; vertical-align: top; }
-      .bi-model-stage { grid-area: 1 / 1; white-space: nowrap; will-change: opacity, transform; }
-      @keyframes bi-model-leave { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-3px); } }
-      @keyframes bi-model-enter { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
-      @media (prefers-reduced-motion: no-preference) {
-        .bi-model-stage-out { animation: bi-model-leave 220ms cubic-bezier(0.22, 0.8, 0.2, 1) both; }
-        .bi-model-stage-in { animation: bi-model-enter 220ms cubic-bezier(0.22, 0.8, 0.2, 1) both; }
-      }
-      @media (prefers-reduced-motion: reduce) { .bi-model-stage-out { display: none; } }
     `;
   document.head.appendChild(style);
   return function () { style.remove(); };
@@ -162,19 +152,6 @@ module.exports = {
     // Survives composer remounts, so returning to an already visited session
     // does not require even one paint of an intermediate state.
     const sessionModelCache = new Map();
-    // The composer dock is recreated by the host when the active conversation
-    // changes. Keep the last painted model outside BottomInfoBar so the next
-    // instance can animate from that visible value instead of hard-cutting.
-    let lastRenderedModelIdentity = null;
-    let modelTransitionGeneration = 0;
-
-    function sameModelIdentity(left, right) {
-      return !!left && !!right
-        && left.sessionId === right.sessionId
-        && left.provider === right.provider
-        && left.model === right.model;
-    }
-
     function applyMode() {
       if (occupantDispose) { occupantDispose(); occupantDispose = null; }
       occupantDispose = slots.register(
@@ -371,49 +348,6 @@ module.exports = {
         || state.billingMode.provider !== activeSessionModel.provider || state.billingMode.model !== activeSessionModel.model)
         ? { provider: activeSessionModel.provider, model: activeSessionModel.model, mode: ['codex', 'chatgpt', 'opencode-go', 'opencode', 'openai-codex'].indexOf(activeSessionModel.provider) >= 0 ? 'subscription' : 'balance' }
         : (waitForSessionModel ? null : state.billingMode);
-      // Changing this key remounts only the model group, which restarts the
-      // intentionally brief transition without animating balance or usage.
-      const modelTransitionKey = activeSessionModel
-        ? activeSessionModel.sessionId + ':' + activeSessionModel.provider + ':' + activeSessionModel.model
-        : 'fallback';
-      const nextModelIdentity = activeSessionModel ? {
-        sessionId: activeSessionModel.sessionId,
-        provider: activeSessionModel.provider,
-        model: activeSessionModel.model,
-        providerDisplay: activeSessionModel.providerDisplay,
-        modelDisplay: activeSessionModel.modelDisplay,
-      } : null;
-      const [modelTransition, setModelTransition] = React.useState({ current: null, previous: null, generation: 0 });
-      // useLayoutEffect commits the two text layers before the browser paints,
-      // so the user sees one continuous A -> B transition instead of a hard
-      // replacement followed by a late animation.
-      React.useLayoutEffect(function () {
-        if (!nextModelIdentity) return;
-        setModelTransition(function (previous) {
-          const priorRendered = lastRenderedModelIdentity;
-          if (sameModelIdentity(priorRendered, nextModelIdentity)) {
-            return previous.current ? previous : { current: nextModelIdentity, previous: null, generation: modelTransitionGeneration };
-          }
-          lastRenderedModelIdentity = nextModelIdentity;
-          modelTransitionGeneration += 1;
-          return {
-            current: nextModelIdentity,
-            previous: priorRendered,
-            generation: modelTransitionGeneration,
-          };
-        });
-      }, [modelTransitionKey]);
-      React.useEffect(function () {
-        if (!modelTransition.previous) return undefined;
-        const generation = modelTransition.generation;
-        const timer = window.setTimeout(function () {
-          setModelTransition(function (current) {
-            return current.generation === generation ? { current: current.current, previous: null, generation: current.generation } : current;
-          });
-        }, 220);
-        return function () { window.clearTimeout(timer); };
-      }, [modelTransition.generation, modelTransition.previous]);
-
       // ---- 与原生一致格式工具 ----
       function formatTokens(n) {
         const scaled = function (v) { return v >= 100 ? String(Math.round(v)) : String(Math.round(v * 10) / 10); };
@@ -499,37 +433,10 @@ module.exports = {
         return modelLabel.slice(providerLabel.length).replace(/^[\s·._/-]+/, '') || modelLabel;
       }
 
-      function pricingForModelIdentity(identity) {
-        if (!identity) return visiblePricing;
-        if (visiblePricing && visiblePricing.provider === identity.provider && visiblePricing.model === identity.model) return visiblePricing;
-        return { provider: identity.provider, model: identity.model, providerDisplay: identity.providerDisplay, modelDisplay: identity.modelDisplay, mode: 'unknown', acceptsImageInput: false };
-      }
-
-      function transitionModelLabel(pr, subscription) {
-        const providerLabel = subscription ? subscriptionServiceName(pr && pr.provider) : ((pr && pr.providerDisplay) || '未知');
-        const modelLabel = (pr && pr.modelDisplay) ? pr.modelDisplay : ((pr && pr.model) || '未知模型');
-        const redundant = !subscription && providerLabel.length > 1 && modelLabel.toLowerCase().indexOf(providerLabel.toLowerCase()) === 0;
-        if (redundant) return [modelLabel];
-        if (subscription) return [React.createElement('b', { className: 'bi-model-provider', key: 'provider' }, providerLabel), modelSeparator(), modelLabel];
-        return [React.createElement('b', { key: 'provider' }, providerLabel), ' ', modelLabel];
-      }
-
-      function crossfadeModelGroup(subscription) {
-        const from = pricingForModelIdentity(modelTransition.previous);
-        const to = pricingForModelIdentity(modelTransition.current);
-        const title = subscription
-          ? '订阅服务：' + subscriptionServiceName(to && to.provider) + '\n模型：' + ((to && to.modelDisplay) || (to && to.model) || '未知模型')
-          : '服务商：' + ((to && to.providerDisplay) || '未知') + ' ' + ((to && to.modelDisplay) || (to && to.model) || '未知模型');
-        return React.createElement('span', { key: 'model-transition:' + modelTransition.generation, className: 'bi-model-crossfade', title: title },
-          React.createElement('span', { className: 'bi-model-stage bi-model-stage-out' }, ...transitionModelLabel(from, subscription)),
-          React.createElement('span', { className: 'bi-model-stage bi-model-stage-in' }, ...transitionModelLabel(to, subscription)));
-      }
-
       // 服务商 + 具体模型（两种模式共用；纯显示，不拦截点击——点击冒泡到整条信息栏触发密度切换；hover 展示定价模式）
       // M5：模型名/服务商名均取 DSH 目录名（与模型切换器完全一致）；当服务商名已是模型名前缀
       // （如 "DeepSeek" + "DeepSeek-V4-Flash"）→ 只显示模型名（切换器样式，避免 "DeepSeek · DeepSeek-V4-Flash" 重复）
       function providerGroup() {
-        if (modelTransition.previous) return crossfadeModelGroup(false);
         const pr = visiblePricing;
         const provLabel = (pr && pr.providerDisplay) ? pr.providerDisplay : '未知';
         const modelLabel = (pr && pr.modelDisplay) ? pr.modelDisplay
@@ -542,15 +449,15 @@ module.exports = {
             : (pr && pr.mode === 'flat' ? '定价：固定价' : '定价：未收录，按默认计'))
           + versionLine;
         if (pr && pr.acceptsImageInput === true) {
-          return React.createElement('span', { key: 'prov:' + modelTransitionKey, className: 'bi-model-group', title: provTitle },
+          return React.createElement('span', { key: 'prov', className: 'bi-model-group', title: provTitle },
             React.createElement('b', { className: 'bi-model-provider' }, provLabel),
             modelSeparator(),
             modelLabelWithCapability(pr, modelLabelWithoutProvider(modelLabel, provLabel)));
         }
         if (redundant) {
-          return React.createElement('span', { key: 'prov:' + modelTransitionKey, title: provTitle }, modelLabel);
+          return React.createElement('span', { key: 'prov', title: provTitle }, modelLabel);
         }
-        return React.createElement('span', { key: 'prov:' + modelTransitionKey, title: provTitle },
+        return React.createElement('span', { key: 'prov', title: provTitle },
           React.createElement('b', null, provLabel),
           ' ',
           modelLabelWithCapability(pr, modelLabel),
@@ -568,7 +475,6 @@ module.exports = {
 
       // 订阅制模型组：订阅服务名 · 具体模型（如 `OpenCode Go · V4 Flash`、`Codex · GPT 5 Codex`）
       function subscriptionProviderGroup() {
-        if (modelTransition.previous) return crossfadeModelGroup(true);
         const pr = visiblePricing;
         const serviceName = subscriptionServiceName(visibleBillingMode && visibleBillingMode.provider);
         const modelLabel = (pr && pr.modelDisplay) ? pr.modelDisplay
@@ -576,7 +482,7 @@ module.exports = {
         const versionLine = updateInfo && typeof updateInfo.current === 'string'
           ? '\n插件版本：' + updateInfo.current : '';
         const title = '订阅服务：' + serviceName + '\n模型：' + modelLabel + versionLine;
-        return React.createElement('span', { key: 'subprov:' + modelTransitionKey, className: 'bi-model-group', title: title },
+        return React.createElement('span', { key: 'subprov', className: 'bi-model-group', title: title },
           React.createElement('b', { className: 'bi-model-provider' }, serviceName),
           modelSeparator(),
           modelLabelWithCapability(pr, modelLabel),
