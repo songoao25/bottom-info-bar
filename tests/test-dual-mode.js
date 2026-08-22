@@ -238,7 +238,7 @@ check('client 订阅制不显示时段（高峰价/空闲价）', subFn.includes
 check('client 订阅制不显示距高峰倒计时', subFn.includes('距高峰'), false);
 check('client 订阅制不显示本对话花费', subFn.includes('本对话 '), false);
 check('client 订阅制不显示本对话 token 用量（subtok 已移除）', subFn.includes('subtok'), false);
-check('client 刷新失败只显示简短标签并提供悬停说明', clientSrc.includes('⚠ 刷新失败') && clientSrc.includes('subscriptionFailureHint'), true);
+check('client 刷新失败只显示简短标签并提供悬停说明', clientSrc.includes("'刷新失败'") && clientSrc.includes('subscriptionFailureHint'), true);
 
 // ---- 7) host RPC 完整性静态检查 ----
 check('host 含 getBillingMode RPC', hostSrc.includes('getBillingMode: function'), true);

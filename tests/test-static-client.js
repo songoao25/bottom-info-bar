@@ -46,8 +46,11 @@ check('client 防抖 800ms 刷新', clientSrc.includes('window.setTimeout(load, 
 check('估算余额使用中性说明色', clientSrc.includes("className: 'bi-muted'"), true);
 check('正常订阅额度不使用绿色成功色', clientSrc.includes("remaining <= LOW_QUOTA_PERCENT ? 'bi-quota-low' : ''"), true);
 check('高峰价使用主文字保证小字号可读', clientSrc.includes('.bi-peak    { color: var(--bi-label-primary); font-weight: 700; }'), true);
-check('错误与警告保留语义色和字重', clientSrc.includes('.bi-err  { color: var(--bi-state-error); font-weight: 600; }')
-  && clientSrc.includes('.bi-stale{ color: var(--bi-state-warning); font-weight: 600; }'), true);
+check('低余额、低额度、刷新失败和阻断错误统一使用鲜红色文字', clientSrc.includes('--bi-state-alert: #ff3b30')
+  && clientSrc.includes('.bi-err, .bi-stale, .bi-alert { color: var(--bi-state-alert); font-weight: 600; }')
+  && clientSrc.includes('.bi-quota-low { color: var(--bi-state-alert); font-weight: 700; }'), true);
+check('提醒不再使用三角图标，改以鲜红色文字说明状态', !clientSrc.includes('⚠')
+  && clientSrc.includes("' 余额偏低'") && clientSrc.includes("' 剩余偏低'"), true);
 check('报错标签统一延后到整行最右侧', clientSrc.includes('const trailingErrorGroups = []')
   && clientSrc.includes('trailingErrorGroups.push')
   && clientSrc.includes('groups.push(...trailingErrorGroups);'), true);
